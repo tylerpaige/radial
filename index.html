@@ -1,7 +1,10 @@
 <!doctype html>
-<html>
+<html lang="en">
 
 <head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Radial rays</title>
   <style>
     *,
     *::before,
@@ -52,105 +55,324 @@
     }
   </style>
   <style>
+    html {
+      touch-action: manipulation;
+    }
+
+    html,
     body {
-      overflow-x: hidden;
-      background-color: #ff4444;
+      height: 100%;
+      overflow: hidden;
+      background: #1a1a1a;
     }
-    .triangle {
-      width: 0;
-      height: 0;
-      position: absolute;
-      top: 0;
-      left: 0;
+
+    #ray-stage {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      overflow: visible;
     }
-    .triangle.right-angle--top-left {
-      border-top: solid var(--triangle-height) var(--triangle-color);
-      border-bottom: solid 0 transparent;
-      border-right: solid var(--triangle-width) transparent;
+
+    #debug-readout {
+      position: fixed;
+      z-index: 2;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 8px 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      color: #f0f0f0;
+      background: rgba(0, 0, 0, 0.78);
+      border-radius: 6px;
+      pointer-events: none;
+      user-select: none;
+      text-align: center;
     }
-    .triangle.right-angle--top-right {
-      border-top: solid var(--triangle-height) var(--triangle-color);
-      border-bottom: solid 0 transparent;
-      border-left: solid var(--triangle-width) transparent;
+
+    .ray-cycle-btn {
+      position: fixed;
+      z-index: 3;
+      bottom: 16px;
+      width: 48px;
+      height: 48px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ccc;
+      font-size: 22px;
+      line-height: 1;
+      border: none;
+      border-radius: 9px;
+      cursor: pointer;
+      background: rgba(0, 0, 0, 0.5);
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+      box-shadow:
+        inset 0 0 0 1px #999,
+        0 0 0 1px #333;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
     }
-    .triangle.right-angle--bottom-right {
-      border-top: solid var(--triangle-height) transparent;
-      border-bottom: solid 0 transparent;
-      border-right: solid var(--triangle-width) var(--triangle-color);
+
+    .ray-cycle-btn--next {
+      right: 16px;
     }
-    .triangle.right-angle--bottom-left {
-      border-top: solid var(--triangle-height) transparent;
-      border-bottom: solid 0 transparent;
-      border-left: solid var(--triangle-width) var(--triangle-color);
+
+    .ray-cycle-btn--prev {
+      left: 16px;
+    }
+
+    .ray-cycle-btn:focus-visible {
+      outline: 2px solid rgba(255, 255, 255, 0.6);
+      outline-offset: 2px;
     }
   </style>
 </head>
 
 <body>
-  <section class="triangles-section" id="triangles-section">
-    <div id="stage">
-      <div class="triangle right-angle--top-right" style="--triangle-width: 100vw; --triangle-height: calc(100vh / 7 * 7); --triangle-color: #777777;"></div>
-      <div class="triangle right-angle--top-right" style="--triangle-width: 100vw; --triangle-height: calc(100vh / 7 * 6); --triangle-color: #888888;"></div>
-      <div class="triangle right-angle--top-right" style="--triangle-width: 100vw; --triangle-height: calc(100vh / 7 * 5); --triangle-color: #999999;"></div>
-      <div class="triangle right-angle--top-right" style="--triangle-width: 100vw; --triangle-height: calc(100vh / 7 * 4); --triangle-color: #aaaaaa;"></div>
-      <div class="triangle right-angle--top-right" style="--triangle-width: 100vw; --triangle-height: calc(100vh / 7 * 3); --triangle-color: #bbbbbb;"></div>
-      <div class="triangle right-angle--top-right" style="--triangle-width: 100vw; --triangle-height: calc(100vh / 7 * 2); --triangle-color: #cccccc;"></div>
-      <div class="triangle right-angle--top-right" style="--triangle-width: 100vw; --triangle-height: calc(100vh / 7 * 1); --triangle-color: #dddddd;"></div>
-      <div class="triangle right-angle--bottom-left" style="--triangle-width: calc(100vw / 7 * 7); --triangle-height: 100vh; --triangle-color: #666666;"></div>
-      <div class="triangle right-angle--bottom-left" style="--triangle-width: calc(100vw / 7 * 6); --triangle-height: 100vh; --triangle-color: #555555;"></div>
-      <div class="triangle right-angle--bottom-left" style="--triangle-width: calc(100vw / 7 * 5); --triangle-height: 100vh; --triangle-color: #444444;"></div>
-      <div class="triangle right-angle--bottom-left" style="--triangle-width: calc(100vw / 7 * 4); --triangle-height: 100vh; --triangle-color: #333333;"></div>
-      <div class="triangle right-angle--bottom-left" style="--triangle-width: calc(100vw / 7 * 3); --triangle-height: 100vh; --triangle-color: #222222;"></div>
-      <div class="triangle right-angle--bottom-left" style="--triangle-width: calc(100vw / 7 * 2); --triangle-height: 100vh; --triangle-color: #111111;"></div>
-      <div class="triangle right-angle--bottom-left" style="--triangle-width: calc(100vw / 7 * 1); --triangle-height: 100vh; --triangle-color: #000000;"></div>
-    </div>
-  </section>
-  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
+  <svg
+    id="ray-stage"
+    xmlns="http://www.w3.org/2000/svg"
+    role="application"
+    tabindex="-1"
+    aria-label="Radial rays from the top-left corner. Left and Down select the next ray; Up and Right select the previous ray."
+  ></svg>
+  <div id="debug-readout" aria-hidden="true"></div>
+  <button type="button" class="ray-cycle-btn ray-cycle-btn--next" id="ray-btn-next" aria-label="Next ray">↻</button>
+  <button type="button" class="ray-cycle-btn ray-cycle-btn--prev" id="ray-btn-prev" aria-label="Previous ray">↺</button>
+
   <script type="text/javascript">
-    /*
-    *******************
-    ** CONFIGURATION **
-    *******************
-    */
-    const COLORS = [
-      '#000000',
-      '#111111',
-      '#222222',
-      '#333333',
-      '#444444',
-      '#555555',
-      '#666666',
-      '#777777',
-      '#888888',
-      '#999999',
-      '#aaaaaa',
-      '#bbbbbb',
-      '#cccccc',
-      '#dddddd',
-      '#eeeeee',
-    ]
+    const CONFIG = {
+      /** Number of wedge rays from the top-left corner across the viewport. */
+      RAY_COUNT: 14,
+      /**
+       * Extra angular weight at the selected ray before normalization (0 = equal widths).
+       * Larger = stronger emphasis on the selection.
+       */
+      ANGLE_PEAK: 20,
+      /**
+       * Gaussian falloff σ in “ray index” units: how many steps away the taper is noticeable.
+       * Larger = smoother, wider halo; smaller = tighter bump on the selected wedge.
+       */
+      ANGLE_SIGMA: 0.5,
+      /**
+       * Ray fill colors, repeated in order as needed (one per ray index).
+       */
+      RAY_COLORS: [
+        '#dddddd',
+        '#c8c8c8',
+        '#b0b0b0',
+        '#989898',
+        '#808080',
+        '#686868',
+        '#505050',
+        '#3d3d3d',
+        '#2a2a2a',
+        '#1a1a1a',
+        '#111111',
+        '#0a0a0a',
+        '#050505',
+        '#000000',
+      ],
+      SHOW_DEBUG_READOUT: true,
+    };
 
-    /*
-    ***************
-    ** CONSTANTS **
-    ***************
-    */
-    const TRIANGLE_TARGET = 100 / MIN_VH;
+    const svgNS = 'http://www.w3.org/2000/svg';
 
-    /*
-    ***************
-    ** FUNCTIONS **
-    ***************
-    */
+    /** First hit of a ray from (0,0) at angle (from +x axis, clockwise/y-down) with the rect [0,w]×[0,h]. */
+    const rayToRectBoundary = (w, h, angle) => {
+      if (angle <= 1e-10) return { x: w, y: 0 };
+      if (angle >= Math.PI / 2 - 1e-10) return { x: 0, y: h };
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const tBottom = h / sin;
+      const xAtBottom = tBottom * cos;
+      if (xAtBottom <= w + 1e-9) return { x: xAtBottom, y: h };
+      const tRight = w / cos;
+      return { x: w, y: tRight * sin };
+    };
 
-    const createTriangle = ({ width, height, color }) => {
-      return `<div 
+    /** Wedge from angle a1 to a2 (radians), covering the viewport from the origin. */
+    const wedgePolygon = (w, h, a1, a2) => {
+      const p1 = rayToRectBoundary(w, h, a1);
+      const p2 = rayToRectBoundary(w, h, a2);
+      const corners = [
+        { x: w, y: 0, a: 0 },
+        { x: w, y: h, a: Math.atan2(h, w) },
+        { x: 0, y: h, a: Math.PI / 2 },
+      ];
+      const mid = corners.filter((c) => c.a > a1 + 1e-9 && c.a < a2 - 1e-9);
+      mid.sort((u, v) => u.a - v.a);
+      return [{ x: 0, y: 0 }, p1, ...mid.map((c) => ({ x: c.x, y: c.y })), p2];
+    };
 
+    const polygonToPath = (pts) => {
+      if (pts.length < 3) return '';
+      const [p0, ...rest] = pts;
+      let d = `M ${p0.x} ${p0.y}`;
+      for (const p of rest) {
+        d += ` L ${p.x} ${p.y}`;
+      }
+      d += ' Z';
+      return d;
+    };
+
+    const pickColor = (i, palette) => {
+      if (!palette.length) return '#888888';
+      return palette[i % palette.length];
+    };
+
+    /**
+     * Per-ray angular widths (radians) summing to halfPi, peaked at activeIndex with Gaussian taper.
+     */
+    const angularWidths = (activeIndex, n, halfPi, peak, sigma) => {
+      const raw = [];
+      for (let i = 0; i < n; i++) {
+        const d = Math.abs(i - activeIndex);
+        const g = Math.exp(-(d * d) / (2 * sigma * sigma));
+        raw.push(1 + peak * g);
+      }
+      const sum = raw.reduce((a, b) => a + b, 0);
+      return raw.map((r) => (halfPi * r) / sum);
+    };
+
+    /** Cumulative angles θ0…θn (length n+1), θ0=0, θn=halfPi. */
+    const cumulativeAngles = (widths, halfPi) => {
+      const b = [0];
+      let acc = 0;
+      for (let i = 0; i < widths.length; i++) {
+        acc += widths[i];
+        b.push(acc);
+      }
+      b[b.length - 1] = halfPi;
+      return b;
+    };
 
     const main = () => {
-      const stage = document.getElementById('stage');
-      
+      const svg = document.getElementById('ray-stage');
+      const debugEl = document.getElementById('debug-readout');
+      const btnNext = document.getElementById('ray-btn-next');
+      const btnPrev = document.getElementById('ray-btn-prev');
+
+      const n = Math.max(1, Math.floor(CONFIG.RAY_COUNT));
+      const peak = Math.max(0, CONFIG.ANGLE_PEAK);
+      const sigma = Math.max(0.35, CONFIG.ANGLE_SIGMA);
+      const colors = Array.isArray(CONFIG.RAY_COLORS) ? CONFIG.RAY_COLORS : ['#cccccc'];
+
+      if (!CONFIG.SHOW_DEBUG_READOUT) {
+        debugEl.style.display = 'none';
+      }
+
+      let activeIndex = 0;
+      let lastW = 0;
+      let lastH = 0;
+      const groups = [];
+      const paths = [];
+
+      const updateRayGeometry = () => {
+        const w = lastW;
+        const h = lastH;
+        if (w < 1 || h < 1 || paths.length !== n) return;
+        const halfPi = Math.PI / 2;
+        const widths = angularWidths(activeIndex, n, halfPi, peak, sigma);
+        const bounds = cumulativeAngles(widths, halfPi);
+        for (let i = 0; i < n; i++) {
+          const pts = wedgePolygon(w, h, bounds[i], bounds[i + 1]);
+          paths[i].setAttribute('d', polygonToPath(pts));
+        }
+      };
+
+      const updateDebug = () => {
+        if (!CONFIG.SHOW_DEBUG_READOUT) return;
+        debugEl.textContent = `ray ${activeIndex + 1} / ${n}  ·  taper σ=${sigma.toFixed(2)}  peak=${peak.toFixed(2)}`;
+      };
+
+      const setActive = (index) => {
+        activeIndex = ((index % n) + n) % n;
+        updateRayGeometry();
+        groups.forEach((g, i) => {
+          g.setAttribute('data-ray-active', i === activeIndex ? 'true' : 'false');
+          if (i !== activeIndex) svg.appendChild(g);
+        });
+        svg.appendChild(groups[activeIndex]);
+        updateDebug();
+      };
+
+      const nextRay = () => setActive(activeIndex + 1);
+      const prevRay = () => setActive(activeIndex - 1);
+
+      const rebuild = () => {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        if (w < 1 || h < 1) return;
+
+        lastW = w;
+        lastH = h;
+
+        svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+        svg.setAttribute('preserveAspectRatio', 'none');
+
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        groups.length = 0;
+        paths.length = 0;
+
+        const half = Math.PI / 2;
+        for (let i = 0; i < n; i++) {
+          const a1 = (i / n) * half;
+          const a2 = ((i + 1) / n) * half;
+          const pts = wedgePolygon(w, h, a1, a2);
+          const path = document.createElementNS(svgNS, 'path');
+          path.setAttribute('d', polygonToPath(pts));
+          path.setAttribute('fill', pickColor(i, colors));
+          path.setAttribute('stroke', 'none');
+
+          const g = document.createElementNS(svgNS, 'g');
+          g.classList.add('ray');
+          g.setAttribute('data-ray-index', String(i));
+          g.setAttribute('data-ray-active', 'false');
+          g.appendChild(path);
+          svg.appendChild(g);
+          groups.push(g);
+          paths.push(path);
+        }
+
+        setActive(activeIndex);
+      };
+
+      const onKeydown = (e) => {
+        const t = e.target;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
+          return;
+        }
+        if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          nextRay();
+        } else if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          prevRay();
+        }
+      };
+
+      window.addEventListener('keydown', onKeydown, true);
+      btnNext.addEventListener('click', nextRay);
+      btnPrev.addEventListener('click', prevRay);
+
+      let resizeRaf = 0;
+      const onResize = () => {
+        cancelAnimationFrame(resizeRaf);
+        resizeRaf = requestAnimationFrame(rebuild);
+      };
+
+      window.addEventListener('resize', onResize);
+      rebuild();
+      updateDebug();
     };
 
     document.addEventListener('DOMContentLoaded', main);
