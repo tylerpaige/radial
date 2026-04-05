@@ -58,7 +58,6 @@
 
     :root {
       --gap-from-viewport-edge: 0.5rem;
-      --ray-label-offset: 6rem;
       --control-gap: 4px;
       --control-size: 48px;
       --control-radius: 9px;
@@ -106,7 +105,7 @@
       position: fixed;
       z-index: 3;
       left: var(--gap-from-viewport-edge);
-      bottom: calc(var(--gap-from-viewport-edge) + var(--ray-label-offset));
+      top: var(--gap-from-viewport-edge);
       display: flex;
       flex-direction: column;
       gap: var(--control-gap);
@@ -150,6 +149,10 @@
       outline-offset: 2px;
     }
 
+    #ray-stage .ray path {
+      cursor: pointer;
+    }
+
     #ray-stage .ray-label {
       pointer-events: none;
       user-select: none;
@@ -164,19 +167,19 @@
     id="ray-stage"
     xmlns="http://www.w3.org/2000/svg"
     role="application"
-    tabindex="-1"
-    aria-label="Radial rays from the top-left corner. Left and Down select the next ray; Up and Right select the previous ray."
+    tabindex="0"
+    aria-label="Radial rays: type letters to add wedges. Escape clears the cursor; arrows, clicks, or typing restore it."
   ></svg>
   <div id="debug-readout" aria-hidden="true"></div>
-  <div class="controls">
-    <button type="button" class="ray-cycle-btn ray-cycle-btn--prev" id="ray-btn-prev" aria-label="Previous ray">←</button>
-    <button type="button" class="ray-cycle-btn ray-cycle-btn--next" id="ray-btn-next" aria-label="Next ray">→</button>
-  </div>
 
   <script type="text/javascript">
     const CONFIG = {
-      /** Number of wedge rays from the top-left corner across the viewport. */
-      RAY_COUNT: 14,
+      /**
+       * Text shown on load; split into one ray per character (Unicode code points).
+       * Editing the message field updates rays in real time.
+       */
+      INITIAL_TEXT:
+        'Say Hello',
       /**
        * Extra angular weight at the selected ray before normalization (0 = equal widths).
        * Larger = stronger emphasis on the selection.
@@ -190,39 +193,31 @@
       /** Duration (ms) for animated transitions between selection states. */
       TRANSITION_MS: 420,
       /**
-       * Short label per ray (letter / word). Repeated in order if fewer than RAY_COUNT.
-       * Use an empty array to hide labels.
-       */
-      RAY_LABELS: [
-        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N',
-      ],
-      /**
        * Inset from the viewport edge along the wedge bisector (px), typically the cycle
        * control size so labels clear the corner buttons.
        */
       RAY_LABEL_INSET_PX: 48,
       /** Label font size (px) in SVG user units. */
       RAY_LABEL_FONT_SIZE: 15,
-      /** Label fill color. */
-      RAY_LABEL_COLOR: '#ffffff',
       /**
-       * Ray fill colors, repeated in order as needed (one per ray index).
+       * Per-ray wedge fill (`background`) and label fill (`text`), cycled by geometric ray index.
+       * Pairs are chosen for readable contrast on each band.
        */
-      RAY_COLORS: [
-        '#dddddd',
-        '#c8c8c8',
-        '#b0b0b0',
-        '#989898',
-        '#808080',
-        '#686868',
-        '#505050',
-        '#3d3d3d',
-        '#2a2a2a',
-        '#1a1a1a',
-        '#111111',
-        '#0a0a0a',
-        '#050505',
-        '#000000',
+      RAY_STYLES: [
+        { background: '#e8e8e8', text: '#141414' },
+        { background: '#d4d4d4', text: '#0d0d0d' },
+        { background: '#bdbdbd', text: '#0a0a0a' },
+        { background: '#a3a3a3', text: '#080808' },
+        { background: '#8a8a8a', text: '#f5f5f5' },
+        { background: '#737373', text: '#fafafa' },
+        { background: '#5c5c5c', text: '#ffffff' },
+        { background: '#454545', text: '#ffffff' },
+        { background: '#363636', text: '#f5f5f5' },
+        { background: '#262626', text: '#f0f0f0' },
+        { background: '#1a1a1a', text: '#ececec' },
+        { background: '#121212', text: '#e8e8e8' },
+        { background: '#0a0a0a', text: '#e0e0e0' },
+        { background: '#000000', text: '#ffffff' },
       ],
       SHOW_DEBUG_READOUT: false,
     };
@@ -267,9 +262,17 @@
       return d;
     };
 
-    const pickColor = (i, palette) => {
-      if (!palette.length) return '#888888';
-      return palette[i % palette.length];
+    const defaultRayStyle = () => ({ background: '#888888', text: '#ffffff' });
+
+    /** @param {{ background?: string, text?: string }[]} styles */
+    const pickRayStyle = (i, styles) => {
+      if (!styles.length) return defaultRayStyle();
+      const s = styles[i % styles.length];
+      const d = defaultRayStyle();
+      return {
+        background: s.background ?? d.background,
+        text: s.text ?? d.text,
+      };
     };
 
     /**
@@ -321,29 +324,35 @@
       return { x, y, rotationDeg };
     };
 
+    /** One entry per Unicode scalar value (surrogate pairs stay one “letter”). */
+    const charsFromString = (s) => Array.from(String(s ?? ''));
+
     const main = () => {
       const svg = document.getElementById('ray-stage');
       const debugEl = document.getElementById('debug-readout');
-      const btnNext = document.getElementById('ray-btn-next');
-      const btnPrev = document.getElementById('ray-btn-prev');
 
-      const n = Math.max(1, Math.floor(CONFIG.RAY_COUNT));
+      let message = String(CONFIG.INITIAL_TEXT ?? '');
+      const initialChars = charsFromString(message);
+      let activeIndex = initialChars.length > 0 ? initialChars.length - 1 : 0;
+      /** When false, wedges are equal width (Escape); arrows / click / typing set true again. */
+      let cursorVisible = true;
+
       const peak = Math.max(0, CONFIG.ANGLE_PEAK);
       const sigma = Math.max(0.35, CONFIG.ANGLE_SIGMA);
       const transitionMs = Math.max(0, CONFIG.TRANSITION_MS);
-      const colors = Array.isArray(CONFIG.RAY_COLORS) ? CONFIG.RAY_COLORS : ['#cccccc'];
-      const rayLabels = Array.isArray(CONFIG.RAY_LABELS) ? CONFIG.RAY_LABELS : [];
+      const rayStyles = Array.isArray(CONFIG.RAY_STYLES) ? CONFIG.RAY_STYLES : [];
       const labelInsetPx = Math.max(0, CONFIG.RAY_LABEL_INSET_PX);
       const labelFontSize = Math.max(6, CONFIG.RAY_LABEL_FONT_SIZE);
-      const labelColor = CONFIG.RAY_LABEL_COLOR || '#ffffff';
 
       if (!CONFIG.SHOW_DEBUG_READOUT) {
         debugEl.style.display = 'none';
       }
 
-      let activeIndex = 0;
       let lastW = 0;
       let lastH = 0;
+      /** Current character list (same order as message); length equals ray count. */
+      let rayChars = [];
+      let n = 0;
       const groups = [];
       const paths = [];
       const labels = [];
@@ -359,7 +368,7 @@
       const applyWidths = (widths) => {
         const w = lastW;
         const h = lastH;
-        if (w < 1 || h < 1 || paths.length !== n) return;
+        if (n < 1 || w < 1 || h < 1 || paths.length !== n) return;
         const norm = normalizeWidths(widths, halfPi);
         currentWidths = norm;
         const bounds = cumulativeAngles(norm, halfPi);
@@ -367,34 +376,28 @@
           const pts = wedgePolygon(w, h, bounds[i], bounds[i + 1]);
           paths[i].setAttribute('d', polygonToPath(pts));
         }
-        if (labels.length === n && rayLabels.length > 0) {
-          for (let i = 0; i < n; i++) {
-            const str = String(rayLabels[(n - 1 - i) % rayLabels.length]);
-            const { x, y, rotationDeg } = labelPlacement(
-              w,
-              h,
-              bounds[i],
-              bounds[i + 1],
-              labelInsetPx,
-            );
-            const te = labels[i];
-            te.textContent = str;
-            te.removeAttribute('display');
-            te.setAttribute('x', x);
-            te.setAttribute('y', y);
-            te.setAttribute('transform', `rotate(${rotationDeg}, ${x}, ${y})`);
-            te.setAttribute('fill', labelColor);
-            te.setAttribute('font-size', labelFontSize);
-          }
-        } else if (labels.length === n) {
-          for (let i = 0; i < n; i++) {
-            labels[i].textContent = '';
-            labels[i].setAttribute('display', 'none');
-          }
+        for (let i = 0; i < n; i++) {
+          const str = String(rayChars[n - 1 - i] ?? '');
+          const { x, y, rotationDeg } = labelPlacement(
+            w,
+            h,
+            bounds[i],
+            bounds[i + 1],
+            labelInsetPx,
+          );
+          const te = labels[i];
+          te.textContent = str;
+          te.removeAttribute('display');
+          te.setAttribute('x', x);
+          te.setAttribute('y', y);
+          te.setAttribute('transform', `rotate(${rotationDeg}, ${x}, ${y})`);
+          te.setAttribute('fill', pickRayStyle(i, rayStyles).text);
+          te.setAttribute('font-size', labelFontSize);
         }
       };
 
       const reorderDom = () => {
+        if (n < 1 || groups.length !== n || !cursorVisible) return;
         const gSel = geoFromLogical(activeIndex);
         groups.forEach((g, i) => {
           g.setAttribute('data-ray-active', i === gSel ? 'true' : 'false');
@@ -405,7 +408,11 @@
 
       const updateDebug = () => {
         if (!CONFIG.SHOW_DEBUG_READOUT) return;
-        debugEl.textContent = `ray ${activeIndex + 1} / ${n}  ·  taper σ=${sigma.toFixed(2)}  peak=${peak.toFixed(2)}`;
+        const cursor = cursorVisible ? 'on' : 'off';
+        debugEl.textContent =
+          n < 1
+            ? `no rays  ·  cursor ${cursor}  ·  σ=${sigma.toFixed(2)}  peak=${peak.toFixed(2)}`
+            : `ray ${activeIndex + 1} / ${n}  ·  cursor ${cursor}  ·  σ=${sigma.toFixed(2)}  peak=${peak.toFixed(2)}`;
       };
 
       const cancelWidthAnimation = () => {
@@ -415,21 +422,44 @@
         }
       };
 
-      /** Instant geometry (resize, first paint) — no tween. */
-      const snapToSelection = (index) => {
+      const equalRayWidths = () => Array(n).fill(halfPi / n);
+
+      /** Apply activeIndex + cursorVisible with no animation. */
+      const snapVisualState = () => {
         cancelWidthAnimation();
-        activeIndex = ((index % n) + n) % n;
+        if (n < 1) {
+          updateDebug();
+          return;
+        }
+        if (!cursorVisible) {
+          applyWidths(equalRayWidths());
+          updateDebug();
+          return;
+        }
         const target = angularWidths(geoFromLogical(activeIndex), n, halfPi, peak, sigma);
         applyWidths(target);
         reorderDom();
         updateDebug();
       };
 
+      const clearCursor = () => {
+        cursorVisible = false;
+        cancelWidthAnimation();
+        if (n < 1) {
+          updateDebug();
+          return;
+        }
+        applyWidths(equalRayWidths());
+        updateDebug();
+      };
+
       const animateToSelection = (index) => {
+        if (n < 1) return;
         const next = ((index % n) + n) % n;
         if (paths.length !== n) return;
 
         cancelWidthAnimation();
+        cursorVisible = true;
         activeIndex = next;
         const toW = angularWidths(geoFromLogical(activeIndex), n, halfPi, peak, sigma);
         const fromW =
@@ -471,6 +501,10 @@
         lastW = w;
         lastH = h;
 
+        rayChars = charsFromString(message);
+        n = rayChars.length;
+        if (activeIndex >= n) activeIndex = Math.max(0, n - 1);
+
         svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
         svg.setAttribute('preserveAspectRatio', 'none');
 
@@ -479,6 +513,12 @@
         paths.length = 0;
         labels.length = 0;
 
+        if (n < 1) {
+          currentWidths = [];
+          updateDebug();
+          return;
+        }
+
         const half = Math.PI / 2;
         for (let i = 0; i < n; i++) {
           const a1 = (i / n) * half;
@@ -486,8 +526,9 @@
           const pts = wedgePolygon(w, h, a1, a2);
           const path = document.createElementNS(svgNS, 'path');
           path.setAttribute('d', polygonToPath(pts));
-          path.setAttribute('fill', pickColor(i, colors));
+          path.setAttribute('fill', pickRayStyle(i, rayStyles).background);
           path.setAttribute('stroke', 'none');
+          path.setAttribute('data-geo-ray-index', String(i));
 
           const textEl = document.createElementNS(svgNS, 'text');
           textEl.setAttribute('class', 'ray-label');
@@ -504,9 +545,34 @@
           groups.push(g);
           paths.push(path);
           labels.push(textEl);
+
+          path.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (n < 1) return;
+            const geo = Number(path.getAttribute('data-geo-ray-index'));
+            if (Number.isNaN(geo)) return;
+            const logical = n - 1 - geo;
+            animateToSelection(logical);
+          });
         }
 
-        snapToSelection(activeIndex);
+        snapVisualState();
+      };
+
+      const insertChar = (ch) => {
+        const c = charsFromString(message);
+        let newC;
+        if (c.length === 0) {
+          newC = [ch];
+          activeIndex = 0;
+        } else {
+          newC = [...c.slice(0, activeIndex + 1), ch, ...c.slice(activeIndex + 1)];
+          activeIndex = activeIndex + 1;
+        }
+        message = newC.join('');
+        cursorVisible = true;
+        rebuild();
       };
 
       const onKeydown = (e) => {
@@ -514,18 +580,71 @@
         if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
           return;
         }
-        if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
+        if (e.key === 'Escape') {
           e.preventDefault();
+          clearCursor();
+          return;
+        }
+        if (e.key === 'Backspace') {
+          e.preventDefault();
+          const c = charsFromString(message);
+          if (c.length < 1) return;
+          cursorVisible = true;
+          const newC = [...c.slice(0, activeIndex), ...c.slice(activeIndex + 1)];
+          message = newC.join('');
+          if (newC.length < 1) {
+            activeIndex = 0;
+          } else {
+            activeIndex = Math.min(activeIndex, newC.length - 1);
+          }
+          rebuild();
+          return;
+        }
+        if (e.key === 'Delete') {
+          e.preventDefault();
+          const c = charsFromString(message);
+          if (c.length < 1) return;
+          cursorVisible = true;
+          if (activeIndex < c.length - 1) {
+            const newC = [...c.slice(0, activeIndex + 1), ...c.slice(activeIndex + 2)];
+            message = newC.join('');
+          } else {
+            return;
+          }
+          rebuild();
+          return;
+        }
+        if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          if (n < 1) return;
+          cursorVisible = true;
           nextRay();
-        } else if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
+          return;
+        }
+        if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
           e.preventDefault();
+          if (n < 1) return;
+          cursorVisible = true;
           prevRay();
+          return;
         }
       };
 
+      const onKeypress = (e) => {
+        const t = e.target;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
+          return;
+        }
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        const code = e.charCode !== undefined ? e.charCode : e.which;
+        if (!code || code < 32) return;
+        const ch = String.fromCharCode(code);
+        e.preventDefault();
+        insertChar(ch);
+      };
+
       window.addEventListener('keydown', onKeydown, true);
-      btnNext.addEventListener('click', nextRay);
-      btnPrev.addEventListener('click', prevRay);
+      window.addEventListener('keypress', onKeypress, true);
 
       let resizeRaf = 0;
       const onResize = () => {
@@ -534,7 +653,11 @@
       };
 
       window.addEventListener('resize', onResize);
+      svg.addEventListener('pointerdown', () => {
+        svg.focus({ preventScroll: true });
+      });
       rebuild();
+      svg.focus({ preventScroll: true });
     };
 
     document.addEventListener('DOMContentLoaded', main);
