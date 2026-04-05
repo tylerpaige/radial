@@ -162,6 +162,8 @@
        * Larger = smoother, wider halo; smaller = tighter bump on the selected wedge.
        */
       ANGLE_SIGMA: 0.5,
+      /** Duration (ms) for animated transitions between selection states. */
+      TRANSITION_MS: 420,
       /**
        * Ray fill colors, repeated in order as needed (one per ray index).
        */
@@ -255,6 +257,14 @@
       return b;
     };
 
+    const normalizeWidths = (raw, halfPi) => {
+      const safe = raw.map((x) => Math.max(1e-12, x));
+      const s = safe.reduce((a, b) => a + b, 0);
+      return safe.map((w) => (halfPi * w) / s);
+    };
+
+    const easeOutCubic = (t) => 1 - (1 - t) ** 3;
+
     const main = () => {
       const svg = document.getElementById('ray-stage');
       const debugEl = document.getElementById('debug-readout');
@@ -264,6 +274,7 @@
       const n = Math.max(1, Math.floor(CONFIG.RAY_COUNT));
       const peak = Math.max(0, CONFIG.ANGLE_PEAK);
       const sigma = Math.max(0.35, CONFIG.ANGLE_SIGMA);
+      const transitionMs = Math.max(0, CONFIG.TRANSITION_MS);
       const colors = Array.isArray(CONFIG.RAY_COLORS) ? CONFIG.RAY_COLORS : ['#cccccc'];
 
       if (!CONFIG.SHOW_DEBUG_READOUT) {
@@ -275,18 +286,31 @@
       let lastH = 0;
       const groups = [];
       const paths = [];
+      /** Last applied angular widths (rad), length n, sum π/2 — start of next animation. */
+      let currentWidths = [];
+      let animRaf = null;
 
-      const updateRayGeometry = () => {
+      const halfPi = Math.PI / 2;
+
+      const applyWidths = (widths) => {
         const w = lastW;
         const h = lastH;
         if (w < 1 || h < 1 || paths.length !== n) return;
-        const halfPi = Math.PI / 2;
-        const widths = angularWidths(activeIndex, n, halfPi, peak, sigma);
-        const bounds = cumulativeAngles(widths, halfPi);
+        const norm = normalizeWidths(widths, halfPi);
+        currentWidths = norm;
+        const bounds = cumulativeAngles(norm, halfPi);
         for (let i = 0; i < n; i++) {
           const pts = wedgePolygon(w, h, bounds[i], bounds[i + 1]);
           paths[i].setAttribute('d', polygonToPath(pts));
         }
+      };
+
+      const reorderDom = () => {
+        groups.forEach((g, i) => {
+          g.setAttribute('data-ray-active', i === activeIndex ? 'true' : 'false');
+          if (i !== activeIndex) svg.appendChild(g);
+        });
+        svg.appendChild(groups[activeIndex]);
       };
 
       const updateDebug = () => {
@@ -294,19 +318,60 @@
         debugEl.textContent = `ray ${activeIndex + 1} / ${n}  ·  taper σ=${sigma.toFixed(2)}  peak=${peak.toFixed(2)}`;
       };
 
-      const setActive = (index) => {
+      const cancelWidthAnimation = () => {
+        if (animRaf != null) {
+          cancelAnimationFrame(animRaf);
+          animRaf = null;
+        }
+      };
+
+      /** Instant geometry (resize, first paint) — no tween. */
+      const snapToSelection = (index) => {
+        cancelWidthAnimation();
         activeIndex = ((index % n) + n) % n;
-        updateRayGeometry();
-        groups.forEach((g, i) => {
-          g.setAttribute('data-ray-active', i === activeIndex ? 'true' : 'false');
-          if (i !== activeIndex) svg.appendChild(g);
-        });
-        svg.appendChild(groups[activeIndex]);
+        const target = angularWidths(activeIndex, n, halfPi, peak, sigma);
+        applyWidths(target);
+        reorderDom();
         updateDebug();
       };
 
-      const nextRay = () => setActive(activeIndex + 1);
-      const prevRay = () => setActive(activeIndex - 1);
+      const animateToSelection = (index) => {
+        const next = ((index % n) + n) % n;
+        if (paths.length !== n) return;
+
+        cancelWidthAnimation();
+        activeIndex = next;
+        const toW = angularWidths(activeIndex, n, halfPi, peak, sigma);
+        const fromW =
+          currentWidths.length === n ? currentWidths.slice() : toW.slice();
+        reorderDom();
+        updateDebug();
+
+        if (transitionMs <= 0) {
+          applyWidths(toW);
+          return;
+        }
+
+        const start = performance.now();
+
+        const tick = (now) => {
+          const t = Math.min(1, (now - start) / transitionMs);
+          const e = easeOutCubic(t);
+          const blended = fromW.map((f, i) => f + (toW[i] - f) * e);
+          applyWidths(blended);
+          if (t < 1) {
+            animRaf = requestAnimationFrame(tick);
+          } else {
+            animRaf = null;
+            applyWidths(toW);
+          }
+        };
+
+        animRaf = requestAnimationFrame(tick);
+      };
+
+      const nextRay = () => animateToSelection(activeIndex + 1);
+      const prevRay = () => animateToSelection(activeIndex - 1);
 
       const rebuild = () => {
         const w = window.innerWidth;
@@ -343,7 +408,7 @@
           paths.push(path);
         }
 
-        setActive(activeIndex);
+        snapToSelection(activeIndex);
       };
 
       const onKeydown = (e) => {
@@ -372,7 +437,6 @@
 
       window.addEventListener('resize', onResize);
       rebuild();
-      updateDebug();
     };
 
     document.addEventListener('DOMContentLoaded', main);
