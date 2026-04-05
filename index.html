@@ -133,6 +133,13 @@
       outline: 2px solid rgba(255, 255, 255, 0.6);
       outline-offset: 2px;
     }
+
+    #ray-stage .ray-label {
+      pointer-events: none;
+      user-select: none;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight: 600;
+    }
   </style>
 </head>
 
@@ -165,6 +172,22 @@
       /** Duration (ms) for animated transitions between selection states. */
       TRANSITION_MS: 420,
       /**
+       * Short label per ray (letter / word). Repeated in order if fewer than RAY_COUNT.
+       * Use an empty array to hide labels.
+       */
+      RAY_LABELS: [
+        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N',
+      ],
+      /**
+       * Inset from the viewport edge along the wedge bisector (px), typically the cycle
+       * control size so labels clear the corner buttons.
+       */
+      RAY_LABEL_INSET_PX: 48,
+      /** Label font size (px) in SVG user units. */
+      RAY_LABEL_FONT_SIZE: 15,
+      /** Label fill color. */
+      RAY_LABEL_COLOR: '#ffffff',
+      /**
        * Ray fill colors, repeated in order as needed (one per ray index).
        */
       RAY_COLORS: [
@@ -183,7 +206,7 @@
         '#050505',
         '#000000',
       ],
-      SHOW_DEBUG_READOUT: true,
+      SHOW_DEBUG_READOUT: false,
     };
 
     const svgNS = 'http://www.w3.org/2000/svg';
@@ -265,6 +288,21 @@
 
     const easeOutCubic = (t) => 1 - (1 - t) ** 3;
 
+    /**
+     * Point along wedge bisector, inset from the viewport boundary along that ray by `insetPx`.
+     * Returns { x, y, rotationDeg } — bisector angle minus 90° CCW (SVG +angle = CW).
+     */
+    const labelPlacement = (w, h, a1, a2, insetPx) => {
+      const alpha = (a1 + a2) / 2;
+      const B = rayToRectBoundary(w, h, alpha);
+      const dist = Math.hypot(B.x, B.y);
+      const d = Math.max(0, dist - insetPx);
+      const x = d * Math.cos(alpha);
+      const y = d * Math.sin(alpha);
+      const rotationDeg = (alpha * 180) / Math.PI - 90;
+      return { x, y, rotationDeg };
+    };
+
     const main = () => {
       const svg = document.getElementById('ray-stage');
       const debugEl = document.getElementById('debug-readout');
@@ -276,6 +314,10 @@
       const sigma = Math.max(0.35, CONFIG.ANGLE_SIGMA);
       const transitionMs = Math.max(0, CONFIG.TRANSITION_MS);
       const colors = Array.isArray(CONFIG.RAY_COLORS) ? CONFIG.RAY_COLORS : ['#cccccc'];
+      const rayLabels = Array.isArray(CONFIG.RAY_LABELS) ? CONFIG.RAY_LABELS : [];
+      const labelInsetPx = Math.max(0, CONFIG.RAY_LABEL_INSET_PX);
+      const labelFontSize = Math.max(6, CONFIG.RAY_LABEL_FONT_SIZE);
+      const labelColor = CONFIG.RAY_LABEL_COLOR || '#ffffff';
 
       if (!CONFIG.SHOW_DEBUG_READOUT) {
         debugEl.style.display = 'none';
@@ -286,6 +328,7 @@
       let lastH = 0;
       const groups = [];
       const paths = [];
+      const labels = [];
       /** Last applied angular widths (rad), length n, sum π/2 — start of next animation. */
       let currentWidths = [];
       let animRaf = null;
@@ -302,6 +345,31 @@
         for (let i = 0; i < n; i++) {
           const pts = wedgePolygon(w, h, bounds[i], bounds[i + 1]);
           paths[i].setAttribute('d', polygonToPath(pts));
+        }
+        if (labels.length === n && rayLabels.length > 0) {
+          for (let i = 0; i < n; i++) {
+            const str = String(rayLabels[i % rayLabels.length]);
+            const { x, y, rotationDeg } = labelPlacement(
+              w,
+              h,
+              bounds[i],
+              bounds[i + 1],
+              labelInsetPx,
+            );
+            const te = labels[i];
+            te.textContent = str;
+            te.removeAttribute('display');
+            te.setAttribute('x', x);
+            te.setAttribute('y', y);
+            te.setAttribute('transform', `rotate(${rotationDeg}, ${x}, ${y})`);
+            te.setAttribute('fill', labelColor);
+            te.setAttribute('font-size', labelFontSize);
+          }
+        } else if (labels.length === n) {
+          for (let i = 0; i < n; i++) {
+            labels[i].textContent = '';
+            labels[i].setAttribute('display', 'none');
+          }
         }
       };
 
@@ -387,6 +455,7 @@
         while (svg.firstChild) svg.removeChild(svg.firstChild);
         groups.length = 0;
         paths.length = 0;
+        labels.length = 0;
 
         const half = Math.PI / 2;
         for (let i = 0; i < n; i++) {
@@ -398,14 +467,21 @@
           path.setAttribute('fill', pickColor(i, colors));
           path.setAttribute('stroke', 'none');
 
+          const textEl = document.createElementNS(svgNS, 'text');
+          textEl.setAttribute('class', 'ray-label');
+          textEl.setAttribute('text-anchor', 'middle');
+          textEl.setAttribute('dominant-baseline', 'middle');
+
           const g = document.createElementNS(svgNS, 'g');
           g.classList.add('ray');
           g.setAttribute('data-ray-index', String(i));
           g.setAttribute('data-ray-active', 'false');
           g.appendChild(path);
+          g.appendChild(textEl);
           svg.appendChild(g);
           groups.push(g);
           paths.push(path);
+          labels.push(textEl);
         }
 
         snapToSelection(activeIndex);
