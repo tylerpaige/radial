@@ -1,0 +1,160 @@
+<!doctype html>
+<html>
+
+<head>
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    * {
+      margin: 0;
+    }
+
+    html {
+      -moz-text-size-adjust: none;
+      -webkit-text-size-adjust: none;
+      text-size-adjust: none;
+    }
+
+    body {
+      min-height: 100vh;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    img,
+    picture,
+    video,
+    canvas,
+    svg {
+      display: block;
+      max-width: 100%;
+    }
+
+    input,
+    button,
+    textarea,
+    select {
+      font: inherit;
+    }
+
+    p,
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+      overflow-wrap: break-word;
+    }
+  </style>
+  <style>
+    body {
+      overflow-x: hidden;
+      background-color: #ff4444;
+    }
+    .triangle {
+      width: 0;
+      height: 0;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    .triangle.right-angle--top-left {
+      border-top: solid var(--triangle-height) var(--triangle-color);
+      border-bottom: solid 0 transparent;
+      border-right: solid var(--triangle-width) transparent;
+    }
+    .triangle.right-angle--top-right {
+      border-top: solid var(--triangle-height) var(--triangle-color);
+      border-bottom: solid 0 transparent;
+      border-left: solid var(--triangle-width) transparent;
+    }
+    .triangle.right-angle--bottom-right {
+      border-top: solid var(--triangle-height) transparent;
+      border-bottom: solid 0 transparent;
+      border-right: solid var(--triangle-width) var(--triangle-color);
+    }
+    .triangle.right-angle--bottom-left {
+      border-top: solid var(--triangle-height) transparent;
+      border-bottom: solid 0 transparent;
+      border-left: solid var(--triangle-width) var(--triangle-color);
+    }
+  </style>
+</head>
+
+<body>
+  <section class="triangles-section" id="triangles-section">
+    <div id="stage">
+      <div class="triangle right-angle--top-right" style="--triangle-width: 100vw; --triangle-height: calc(100vh / 7 * 7); --triangle-color: #777777;"></div>
+      <div class="triangle right-angle--top-right" style="--triangle-width: 100vw; --triangle-height: calc(100vh / 7 * 6); --triangle-color: #888888;"></div>
+      <div class="triangle right-angle--top-right" style="--triangle-width: 100vw; --triangle-height: calc(100vh / 7 * 5); --triangle-color: #999999;"></div>
+      <div class="triangle right-angle--top-right" style="--triangle-width: 100vw; --triangle-height: calc(100vh / 7 * 4); --triangle-color: #aaaaaa;"></div>
+      <div class="triangle right-angle--top-right" style="--triangle-width: 100vw; --triangle-height: calc(100vh / 7 * 3); --triangle-color: #bbbbbb;"></div>
+      <div class="triangle right-angle--top-right" style="--triangle-width: 100vw; --triangle-height: calc(100vh / 7 * 2); --triangle-color: #cccccc;"></div>
+      <div class="triangle right-angle--top-right" style="--triangle-width: 100vw; --triangle-height: calc(100vh / 7 * 1); --triangle-color: #dddddd;"></div>
+      <div class="triangle right-angle--bottom-left" style="--triangle-width: calc(100vw / 7 * 7); --triangle-height: 100vh; --triangle-color: #666666;"></div>
+      <div class="triangle right-angle--bottom-left" style="--triangle-width: calc(100vw / 7 * 6); --triangle-height: 100vh; --triangle-color: #555555;"></div>
+      <div class="triangle right-angle--bottom-left" style="--triangle-width: calc(100vw / 7 * 5); --triangle-height: 100vh; --triangle-color: #444444;"></div>
+      <div class="triangle right-angle--bottom-left" style="--triangle-width: calc(100vw / 7 * 4); --triangle-height: 100vh; --triangle-color: #333333;"></div>
+      <div class="triangle right-angle--bottom-left" style="--triangle-width: calc(100vw / 7 * 3); --triangle-height: 100vh; --triangle-color: #222222;"></div>
+      <div class="triangle right-angle--bottom-left" style="--triangle-width: calc(100vw / 7 * 2); --triangle-height: 100vh; --triangle-color: #111111;"></div>
+      <div class="triangle right-angle--bottom-left" style="--triangle-width: calc(100vw / 7 * 1); --triangle-height: 100vh; --triangle-color: #000000;"></div>
+    </div>
+  </section>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
+  <script type="text/javascript">
+    /*
+    *******************
+    ** CONFIGURATION **
+    *******************
+    */
+    const COLORS = [
+      '#000000',
+      '#111111',
+      '#222222',
+      '#333333',
+      '#444444',
+      '#555555',
+      '#666666',
+      '#777777',
+      '#888888',
+      '#999999',
+      '#aaaaaa',
+      '#bbbbbb',
+      '#cccccc',
+      '#dddddd',
+      '#eeeeee',
+    ]
+
+    /*
+    ***************
+    ** CONSTANTS **
+    ***************
+    */
+    const TRIANGLE_TARGET = 100 / MIN_VH;
+
+    /*
+    ***************
+    ** FUNCTIONS **
+    ***************
+    */
+
+    const createTriangle = ({ width, height, color }) => {
+      return `<div 
+
+
+    const main = () => {
+      const stage = document.getElementById('stage');
+      
+    };
+
+    document.addEventListener('DOMContentLoaded', main);
+  </script>
+</body>
+
+</html>
