@@ -55,6 +55,15 @@
     }
   </style>
   <style>
+
+    :root {
+      --gap-from-viewport-edge: 0.5rem;
+      --ray-label-offset: 6rem;
+      --control-gap: 4px;
+      --control-size: 48px;
+      --control-radius: 9px;
+      --control-font-size: 22px;
+    }
     html {
       touch-action: manipulation;
     }
@@ -93,21 +102,28 @@
       text-align: center;
     }
 
-    .ray-cycle-btn {
+    .controls {
       position: fixed;
       z-index: 3;
-      bottom: 16px;
-      width: 48px;
-      height: 48px;
+      left: var(--gap-from-viewport-edge);
+      bottom: calc(var(--gap-from-viewport-edge) + var(--ray-label-offset));
+      display: flex;
+      flex-direction: column;
+      gap: var(--control-gap);
+    }
+
+    .ray-cycle-btn {
+      width: var(--control-size);
+      height: var(--control-size);
       padding: 0;
       display: flex;
       align-items: center;
       justify-content: center;
       color: #ccc;
-      font-size: 22px;
+      font-size: var(--control-font-size);
       line-height: 1;
       border: none;
-      border-radius: 9px;
+      border-radius: var(--control-radius);
       cursor: pointer;
       background: rgba(0, 0, 0, 0.5);
       -webkit-backdrop-filter: blur(12px);
@@ -122,11 +138,11 @@
     }
 
     .ray-cycle-btn--next {
-      right: 16px;
+      left: var(--gap-from-viewport-edge);
     }
 
     .ray-cycle-btn--prev {
-      left: 16px;
+      left: var(--gap-from-viewport-edge);
     }
 
     .ray-cycle-btn:focus-visible {
@@ -152,8 +168,10 @@
     aria-label="Radial rays from the top-left corner. Left and Down select the next ray; Up and Right select the previous ray."
   ></svg>
   <div id="debug-readout" aria-hidden="true"></div>
-  <button type="button" class="ray-cycle-btn ray-cycle-btn--next" id="ray-btn-next" aria-label="Next ray">↻</button>
-  <button type="button" class="ray-cycle-btn ray-cycle-btn--prev" id="ray-btn-prev" aria-label="Previous ray">↺</button>
+  <div class="controls">
+    <button type="button" class="ray-cycle-btn ray-cycle-btn--prev" id="ray-btn-prev" aria-label="Previous ray">←</button>
+    <button type="button" class="ray-cycle-btn ray-cycle-btn--next" id="ray-btn-next" aria-label="Next ray">→</button>
+  </div>
 
   <script type="text/javascript">
     const CONFIG = {
@@ -335,6 +353,9 @@
 
       const halfPi = Math.PI / 2;
 
+      /** Geometric wedge index (0 = along +x … n−1 = along +y) from logical “first ray” index (0 = black / A). */
+      const geoFromLogical = (logical) => n - 1 - logical;
+
       const applyWidths = (widths) => {
         const w = lastW;
         const h = lastH;
@@ -348,7 +369,7 @@
         }
         if (labels.length === n && rayLabels.length > 0) {
           for (let i = 0; i < n; i++) {
-            const str = String(rayLabels[i % rayLabels.length]);
+            const str = String(rayLabels[(n - 1 - i) % rayLabels.length]);
             const { x, y, rotationDeg } = labelPlacement(
               w,
               h,
@@ -374,11 +395,12 @@
       };
 
       const reorderDom = () => {
+        const gSel = geoFromLogical(activeIndex);
         groups.forEach((g, i) => {
-          g.setAttribute('data-ray-active', i === activeIndex ? 'true' : 'false');
-          if (i !== activeIndex) svg.appendChild(g);
+          g.setAttribute('data-ray-active', i === gSel ? 'true' : 'false');
+          if (i !== gSel) svg.appendChild(g);
         });
-        svg.appendChild(groups[activeIndex]);
+        svg.appendChild(groups[gSel]);
       };
 
       const updateDebug = () => {
@@ -397,7 +419,7 @@
       const snapToSelection = (index) => {
         cancelWidthAnimation();
         activeIndex = ((index % n) + n) % n;
-        const target = angularWidths(activeIndex, n, halfPi, peak, sigma);
+        const target = angularWidths(geoFromLogical(activeIndex), n, halfPi, peak, sigma);
         applyWidths(target);
         reorderDom();
         updateDebug();
@@ -409,7 +431,7 @@
 
         cancelWidthAnimation();
         activeIndex = next;
-        const toW = angularWidths(activeIndex, n, halfPi, peak, sigma);
+        const toW = angularWidths(geoFromLogical(activeIndex), n, halfPi, peak, sigma);
         const fromW =
           currentWidths.length === n ? currentWidths.slice() : toW.slice();
         reorderDom();
@@ -474,7 +496,7 @@
 
           const g = document.createElementNS(svgNS, 'g');
           g.classList.add('ray');
-          g.setAttribute('data-ray-index', String(i));
+          g.setAttribute('data-ray-index', String(n - 1 - i));
           g.setAttribute('data-ray-active', 'false');
           g.appendChild(path);
           g.appendChild(textEl);
