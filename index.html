@@ -123,29 +123,34 @@
       font-weight: 600;
     }
 
+    /**
+     * No z-index here: a positioned stacking context can prevent mix-blend-mode on the
+     * image from compositing with the SVG sibling. DOM order paints this layer after #ray-stage.
+     *
+     * Fade uses mask-image (JS), not parent opacity — animating opacity on an ancestor would
+     * flatten the subtree so overlay blending only reads correctly at the end of the fade.
+     */
     #ray-focus-image-layer {
       position: absolute;
       inset: 0;
-      z-index: 2;
       pointer-events: none;
     }
 
-    .ray-focus-image-anchor {
-      position: absolute;
-      transform: translate(-50%, -50%);
-      max-width: min(42vw, 300px);
-      max-height: min(34vh, 240px);
-    }
-
     #ray-focus-image {
-      display: block;
+      position: absolute;
+      left: 0;
+      top: 0;
       width: 100%;
-      height: auto;
-      max-height: min(34vh, 240px);
-      object-fit: contain;
-      opacity: 0;
-      border-radius: 10px;
-      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      mix-blend-mode: screen;
+      filter: saturate(0) contrast(3);
+      opacity: 1;
+      mask-size: 100% 100%;
+      mask-repeat: no-repeat;
+      -webkit-mask-size: 100% 100%;
+      -webkit-mask-repeat: no-repeat;
     }
 
     .mobile-type-btn {
@@ -255,9 +260,7 @@
       aria-label="Radial rays: type letters to add wedges. Escape clears the cursor; arrows, clicks, or typing restore it."
     ></svg>
     <div id="ray-focus-image-layer" aria-hidden="true">
-      <div id="ray-focus-image-anchor" class="ray-focus-image-anchor">
-        <img id="ray-focus-image" alt="" decoding="async" />
-      </div>
+      <img id="ray-focus-image" alt="" decoding="async" />
     </div>
   </div>
   <button
@@ -481,10 +484,26 @@
       const labelFontSize = Math.max(6, CONFIG.RAY_LABEL_FONT_SIZE);
       const rayImageMap =
         CONFIG.RAY_IMAGE_MAP && typeof CONFIG.RAY_IMAGE_MAP === 'object' ? CONFIG.RAY_IMAGE_MAP : {};
-      /** Inset along bisector for the focus image anchor (px), beyond the viewport edge. */
-      const imageAnchorInsetPx = labelInsetPx + 80;
-      const focusAnchor = document.getElementById('ray-focus-image-anchor');
       const focusImg = document.getElementById('ray-focus-image');
+
+      /** Uniform alpha mask so the img stays opacity:1 while fading (keeps mix-blend-mode correct). */
+      const setFocusImageMaskAlpha = (a) => {
+        if (!focusImg) return;
+        if (a >= 1) {
+          focusImg.style.maskImage = 'none';
+          focusImg.style.webkitMaskImage = 'none';
+          return;
+        }
+        if (a <= 0) {
+          const hidden = 'linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0))';
+          focusImg.style.maskImage = hidden;
+          focusImg.style.webkitMaskImage = hidden;
+          return;
+        }
+        const g = `linear-gradient(rgba(0,0,0,${a}), rgba(0,0,0,${a}))`;
+        focusImg.style.maskImage = g;
+        focusImg.style.webkitMaskImage = g;
+      };
 
       if (!CONFIG.SHOW_DEBUG_READOUT) {
         debugEl.style.display = 'none';
@@ -608,27 +627,32 @@
 
       const hideFocusImage = () => {
         cancelImageFade();
+        if (focusImg) {
+          focusImg.style.clipPath = '';
+          focusImg.style.webkitClipPath = '';
+          setFocusImageMaskAlpha(0);
+        }
         if (!focusImg) return;
-        focusImg.style.opacity = '0';
         focusImg.removeAttribute('src');
         focusImg.onload = null;
         focusImg.onerror = null;
       };
 
-      const updateFocusImageAnchorPosition = () => {
-        if (!focusAnchor || n < 1 || lastW < 1 || lastH < 1) return;
+      /** Clip-path for the active wedge; same geometry as the SVG path. */
+      const wedgePolygonClipPath = (w, h, a1, a2) => {
+        const pts = wedgePolygon(w, h, a1, a2);
+        const s = pts.map((p) => `${p.x}px ${p.y}px`).join(', ');
+        return `polygon(${s})`;
+      };
+
+      const updateFocusImageClip = () => {
+        if (!focusImg || n < 1 || lastW < 1 || lastH < 1) return;
         if (!cursorVisible || currentWidths.length !== n) return;
         const geo = geoFromLogical(activeIndex);
         const bounds = cumulativeAngles(currentWidths, halfPi);
-        const { x, y } = labelPlacement(
-          lastW,
-          lastH,
-          bounds[geo],
-          bounds[geo + 1],
-          imageAnchorInsetPx,
-        );
-        focusAnchor.style.left = `${x}px`;
-        focusAnchor.style.top = `${y}px`;
+        const cp = wedgePolygonClipPath(lastW, lastH, bounds[geo], bounds[geo + 1]);
+        focusImg.style.clipPath = cp;
+        focusImg.style.webkitClipPath = cp;
       };
 
       /**
@@ -644,32 +668,34 @@
         const ch = String(rayChars[activeIndex] ?? '');
         const url = rayImageMap[ch];
         if (!url) {
+          if (focusImg) {
+            focusImg.style.clipPath = '';
+            focusImg.style.webkitClipPath = '';
+            setFocusImageMaskAlpha(0);
+          }
           focusImg.removeAttribute('src');
-          focusImg.style.opacity = '0';
           return;
         }
 
-        focusImg.style.opacity = '0';
-
         const runFade = () => {
-          focusImg.style.opacity = '0';
+          setFocusImageMaskAlpha(0);
           const start = performance.now();
           const tick = (now) => {
             const t = Math.min(1, (now - start) / imageFadeMs);
             const e = easeOutCubic(t);
-            focusImg.style.opacity = String(e);
+            setFocusImageMaskAlpha(e);
             if (t < 1) {
               imageFadeRaf = requestAnimationFrame(tick);
             } else {
               imageFadeRaf = null;
-              focusImg.style.opacity = '1';
+              setFocusImageMaskAlpha(1);
             }
           };
           imageFadeRaf = requestAnimationFrame(tick);
         };
 
         const startAfterDecode = () => {
-          updateFocusImageAnchorPosition();
+          updateFocusImageClip();
           requestAnimationFrame(() => {
             requestAnimationFrame(runFade);
           });
@@ -678,7 +704,7 @@
         focusImg.onload = null;
         focusImg.onerror = () => {
           focusImg.onerror = null;
-          focusImg.style.opacity = '0';
+          setFocusImageMaskAlpha(0);
         };
         focusImg.src = url;
         if (focusImg.decode) {
@@ -1072,7 +1098,7 @@
           if (mobileInputOpen) updateRayViewportSize();
           else rebuild();
           if (focusImg && focusImg.getAttribute('src') && cursorVisible) {
-            updateFocusImageAnchorPosition();
+            updateFocusImageClip();
           }
         });
       };
