@@ -137,7 +137,7 @@
        * Use an empty array to hide labels.
        */
       RAY_LABELS: [
-        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N',
+        '1:00', '2:00', '3:00', '4:00', '5:00', '6:00', '7:00', '8:00', '9:00', '10:00', '11:00', '12:00',
       ],
       /** Inset from the viewport edge along the wedge bisector (px). */
       RAY_LABEL_INSET_PX: 48,
@@ -317,6 +317,8 @@
       let lastH = 0;
       const groups = [];
       const paths = [];
+      /** Paths inside each ray’s `<clipPath>`; same `d` as the wedge fill path. */
+      const clipPathPaths = [];
       const labels = [];
       /** Last applied angular widths (rad), length n, sum π/2 — start of next animation. */
       let currentWidths = [];
@@ -338,7 +340,7 @@
         const labelOpacities = opts.labelOpacities;
         const w = lastW;
         const h = lastH;
-        if (w < 1 || h < 1 || paths.length !== n) return;
+        if (w < 1 || h < 1 || paths.length !== n || clipPathPaths.length !== n) return;
         const norm = normalize ? normalizeWidths(widths, halfPi) : widths.map((x) => Math.max(0, x));
         if (normalize) {
           currentWidths = norm;
@@ -349,9 +351,12 @@
           const a2 = bounds[i + 1];
           if (a2 - a1 < 1e-9) {
             paths[i].setAttribute('d', '');
+            clipPathPaths[i].setAttribute('d', '');
           } else {
             const pts = wedgePolygon(w, h, a1, a2);
-            paths[i].setAttribute('d', polygonToPath(pts));
+            const d = polygonToPath(pts);
+            paths[i].setAttribute('d', d);
+            clipPathPaths[i].setAttribute('d', d);
           }
         }
         if (skipLabels) {
@@ -582,6 +587,7 @@
         while (svg.firstChild) svg.removeChild(svg.firstChild);
         groups.length = 0;
         paths.length = 0;
+        clipPathPaths.length = 0;
         labels.length = 0;
 
         const half = Math.PI / 2;
@@ -590,24 +596,39 @@
           const a2 = ((i + 1) / n) * half;
           const pts = wedgePolygon(w, h, a1, a2);
           const path = document.createElementNS(svgNS, 'path');
-          path.setAttribute('d', polygonToPath(pts));
+          const d0 = polygonToPath(pts);
+          path.setAttribute('d', d0);
           path.setAttribute('fill', pickColor(i, colors));
           path.setAttribute('stroke', 'none');
+
+          const defs = document.createElementNS(svgNS, 'defs');
+          const clipEl = document.createElementNS(svgNS, 'clipPath');
+          clipEl.setAttribute('id', `ray-clip-${i}`);
+          const clipPathPath = document.createElementNS(svgNS, 'path');
+          clipPathPath.setAttribute('d', d0);
+          clipEl.appendChild(clipPathPath);
+          defs.appendChild(clipEl);
 
           const textEl = document.createElementNS(svgNS, 'text');
           textEl.setAttribute('class', 'ray-label');
           textEl.setAttribute('text-anchor', 'middle');
           textEl.setAttribute('dominant-baseline', 'middle');
 
+          const labelLayer = document.createElementNS(svgNS, 'g');
+          labelLayer.setAttribute('clip-path', `url(#ray-clip-${i})`);
+          labelLayer.appendChild(textEl);
+
           const g = document.createElementNS(svgNS, 'g');
           g.classList.add('ray');
           g.setAttribute('data-ray-index', String(n - 1 - i));
           g.setAttribute('data-ray-active', 'false');
+          g.appendChild(defs);
           g.appendChild(path);
-          g.appendChild(textEl);
+          g.appendChild(labelLayer);
           svg.appendChild(g);
           groups.push(g);
           paths.push(path);
+          clipPathPaths.push(clipPathPath);
           labels.push(textEl);
         }
 
