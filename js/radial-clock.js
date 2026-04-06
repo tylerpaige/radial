@@ -91,6 +91,27 @@ export function logicalIndexForCurrentHour(n, rayLabels) {
 }
 
 /**
+ * True when `logicalIndex` is the ray that represents the current local hour
+ * (same rule as {@link logicalIndexForCurrentHour}).
+ */
+export function isLogicalIndexCurrentHour(n, rayLabels, logicalIndex) {
+  return logicalIndex === logicalIndexForCurrentHour(n, rayLabels);
+}
+
+/** 12-hour time with minutes, e.g. `12:05`, `3:42`. */
+export function formatTimeToMinute(d = new Date()) {
+  let h = d.getHours() % 12;
+  if (h === 0) h = 12;
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${h}:${mm}`;
+}
+
+function msUntilNextMinute() {
+  const now = new Date();
+  return 60000 - (now.getSeconds() * 1000 + now.getMilliseconds());
+}
+
+/**
  * @param {SVGElement|string} svg
  * @param {{ clock?: object, stage?: object, hooks?: object, debugElement?: HTMLElement|null }} [options]
  */
@@ -119,6 +140,27 @@ export function createRadialClock(svg, options = {}) {
 
   const debugEl = options.debugElement ?? null;
 
+  const templateLabelForLogicalIndex = (logicalIndex) => {
+    const m = Math.max(1, clockCfg.rayLabels.length);
+    return String(clockCfg.rayLabels[logicalIndex % m]);
+  };
+
+  /** Tracks `Date#getHours()` for hour-change detection. */
+  let lastTrackedHour = new Date().getHours();
+  let minuteTimeoutId = null;
+  let minuteIntervalId = null;
+
+  const clearMinuteSchedule = () => {
+    if (minuteTimeoutId != null) {
+      clearTimeout(minuteTimeoutId);
+      minuteTimeoutId = null;
+    }
+    if (minuteIntervalId != null) {
+      clearInterval(minuteIntervalId);
+      minuteIntervalId = null;
+    }
+  };
+
   const updateDebug = () => {
     if (!debugEl || !clockCfg.showDebugReadout) return;
     const n = stage.count;
@@ -131,10 +173,60 @@ export function createRadialClock(svg, options = {}) {
     }
   };
 
-  const selectRayForCurrentHour = () => {
+  /**
+   * Live time only on the ray for the current hour; other rays use the static template label.
+   */
+  const syncActiveRayLabel = (now = new Date()) => {
+    const idx = stage.activeIndex;
+    const n = stage.count;
+    if (idx < 0 || n < 1) return;
+    if (isLogicalIndexCurrentHour(n, clockCfg.rayLabels, idx)) {
+      stage.setRayLabel(idx, formatTimeToMinute(now));
+    } else {
+      stage.setRayLabel(idx, templateLabelForLogicalIndex(idx));
+    }
+  };
+
+  const onMinuteTick = () => {
+    if (!stage.introComplete) return;
+    const now = new Date();
+    const h24 = now.getHours();
+
+    if (h24 !== lastTrackedHour) {
+      lastTrackedHour = h24;
+      const oldIdx = stage.activeIndex;
+      if (oldIdx >= 0) {
+        stage.setRayLabel(oldIdx, templateLabelForLogicalIndex(oldIdx));
+      }
+      const newIdx = logicalIndexForCurrentHour(stage.count, clockCfg.rayLabels);
+      const navOpts = { animate: !prefersReducedMotion() };
+      stage.setActiveRay(newIdx, navOpts);
+      updateDebug();
+      return;
+    }
+
+    syncActiveRayLabel(now);
+  };
+
+  const startMinuteSchedule = () => {
+    clearMinuteSchedule();
+    lastTrackedHour = new Date().getHours();
+    syncActiveRayLabel();
+    minuteTimeoutId = setTimeout(() => {
+      minuteTimeoutId = null;
+      onMinuteTick();
+      minuteIntervalId = setInterval(onMinuteTick, 60000);
+    }, msUntilNextMinute());
+  };
+
+  /**
+   * @param {{ animate?: boolean, immediate?: boolean }} [navOpts]
+   */
+  const selectRayForCurrentHour = (navOpts) => {
     const n = stage.count;
     const idx = logicalIndexForCurrentHour(n, clockCfg.rayLabels);
-    stage.setActiveRay(idx);
+    stage.setActiveRay(idx, navOpts);
+    stage.setRayLabel(idx, formatTimeToMinute());
   };
 
   stage.setHooks({
@@ -145,6 +237,7 @@ export function createRadialClock(svg, options = {}) {
     },
     afterRayFocus: (...args) => {
       stageHooks.afterRayFocus?.(...args);
+      syncActiveRayLabel();
       updateDebug();
     },
     afterRayBlur: (...args) => {
@@ -157,6 +250,14 @@ export function createRadialClock(svg, options = {}) {
     },
   });
 
+  const beginClock = () => {
+    stage.resizeContainer();
+    const navOpts = { animate: !prefersReducedMotion() };
+    selectRayForCurrentHour(navOpts);
+    updateDebug();
+    startMinuteSchedule();
+  };
+
   const start = () => {
     stage.initialize();
     if (debugEl) {
@@ -165,19 +266,24 @@ export function createRadialClock(svg, options = {}) {
     stage.attachInteraction({ resize: true, keydown: true, pointer: true });
     if (prefersReducedMotion()) {
       stage.setIntroComplete(true);
-      stage.blurAll({ immediate: true });
-      selectRayForCurrentHour();
+      stage.blurAll({ animate: false });
+      beginClock();
     } else {
       stage.setIntroComplete(false);
       stage.runIntro({
         eachMs: clockCfg.introEachMs,
         onDone: () => {
-          selectRayForCurrentHour();
-          updateDebug();
+          beginClock();
         },
       });
     }
     updateDebug();
+  };
+
+  const isActiveRayCurrentHour = () => {
+    const n = stage.count;
+    const idx = stage.activeIndex;
+    return idx >= 0 && isLogicalIndexCurrentHour(n, clockCfg.rayLabels, idx);
   };
 
   return {
@@ -186,5 +292,9 @@ export function createRadialClock(svg, options = {}) {
     selectRayForCurrentHour,
     updateDebug,
     start,
+    /** Stops the per-minute timer (e.g. before teardown). */
+    stopMinuteSchedule: clearMinuteSchedule,
+    /** Whether the focused ray is the one for the current local hour. */
+    isActiveRayCurrentHour,
   };
 }

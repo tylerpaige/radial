@@ -170,6 +170,18 @@ const defaultConfig = () => ({
 });
 
 /**
+ * Whether navigation/focus should snap without width tween.
+ * `immediate: true` or `animate: false` → snap; default is animated.
+ * @param {{ animate?: boolean, immediate?: boolean }} [opts]
+ */
+export function isNavigationImmediate(opts) {
+  if (!opts || typeof opts !== 'object') return false;
+  if (opts.immediate === true) return true;
+  if (opts.animate === false) return true;
+  return false;
+}
+
+/**
  * Point along wedge bisector, inset from the viewport boundary along that ray by `insetPx`.
  */
 export function labelPlacement(w, h, a1, a2, insetPx) {
@@ -330,11 +342,11 @@ export class RadialRayStage {
 
   /**
    * @param {number} logicalIndex -1 for unfocused
-   * @param {{ immediate?: boolean }} [opts]
+   * @param {{ animate?: boolean, immediate?: boolean }} [opts] - Use `animate: false` or `immediate: true` to skip the width transition.
    */
   setActiveRay(logicalIndex, opts = {}) {
     const idx = Math.min(this.count - 1, Math.max(-1, logicalIndex));
-    if (opts.immediate) {
+    if (isNavigationImmediate(opts)) {
       this._snapToState(idx);
       return this;
     }
@@ -342,10 +354,16 @@ export class RadialRayStage {
     return this;
   }
 
+  /**
+   * @param {{ animate?: boolean, immediate?: boolean }} [opts]
+   */
   blurAll(opts = {}) {
     return this.setActiveRay(-1, opts);
   }
 
+  /**
+   * @param {{ animate?: boolean, immediate?: boolean }} [opts]
+   */
   next(opts = {}) {
     const n = this.count;
     if (n < 1) return this;
@@ -357,6 +375,9 @@ export class RadialRayStage {
     return this.setActiveRay(nextIdx, opts);
   }
 
+  /**
+   * @param {{ animate?: boolean, immediate?: boolean }} [opts]
+   */
   previous(opts = {}) {
     const n = this.count;
     if (n < 1) return this;
@@ -439,6 +460,23 @@ export class RadialRayStage {
     this._applyWidths(this._currentWidths.length === this.count ? this._currentWidths : this._widthsForState(this._activeIndex), {
       normalize: true,
     });
+    return this;
+  }
+
+  /**
+   * Update a ray’s label text and redraw (no geometry animation).
+   * @param {number} logicalIndex
+   * @param {string|null|undefined} label
+   */
+  setRayLabel(logicalIndex, label) {
+    if (logicalIndex < 0 || logicalIndex >= this.count) return this;
+    this._rays[logicalIndex].label = label == null ? '' : String(label);
+    /** Prefer live `_currentWidths` during width tweens so we do not snap geometry. */
+    const w =
+      this._currentWidths.length === this.count
+        ? this._currentWidths
+        : this._widthsForState(this._activeIndex);
+    this._applyWidths(w, { normalize: true });
     return this;
   }
 
@@ -745,11 +783,36 @@ export class RadialRayStage {
   }
 
   _snapToState(index) {
+    const prev = this._activeIndex;
+    if (prev !== index) {
+      if (prev >= 0 && index === -1) {
+        this._emit('beforeRayBlur', { logicalIndex: prev });
+        this._emit('beforeBlurAll', {});
+      } else if (prev === -1 && index >= 0) {
+        this._emit('beforeRayFocus', { logicalIndex: index });
+      } else if (prev >= 0 && index >= 0 && prev !== index) {
+        this._emit('beforeRayBlur', { logicalIndex: prev });
+        this._emit('beforeRayFocus', { logicalIndex: index });
+      }
+    }
+
     this._cancelWidthAnimation();
     this._activeIndex = index;
     const target = this._widthsForState(this._activeIndex);
     this._applyWidths(target, { normalize: true, skipLabels: false });
     this._reorderDom();
+
+    if (prev !== index) {
+      if (prev >= 0 && index === -1) {
+        this._emit('afterRayBlur', { logicalIndex: prev });
+        this._emit('afterBlurAll', {});
+      } else if (prev === -1 && index >= 0) {
+        this._emit('afterRayFocus', { logicalIndex: index });
+      } else if (prev >= 0 && index >= 0 && prev !== index) {
+        this._emit('afterRayBlur', { logicalIndex: prev });
+        this._emit('afterRayFocus', { logicalIndex: index });
+      }
+    }
   }
 
   _animateToState(index) {
