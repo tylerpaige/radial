@@ -56,14 +56,6 @@
   </style>
   <style>
 
-    :root {
-      --gap-from-viewport-edge: 0.5rem;
-      --ray-label-offset: 6rem;
-      --control-gap: 4px;
-      --control-size: 48px;
-      --control-radius: 9px;
-      --control-font-size: 22px;
-    }
     html {
       touch-action: manipulation;
     }
@@ -82,6 +74,9 @@
       height: 100%;
       display: block;
       overflow: visible;
+      touch-action: none;
+      cursor: default;
+      -webkit-tap-highlight-color: transparent;
     }
 
     #debug-readout {
@@ -102,59 +97,6 @@
       text-align: center;
     }
 
-    .controls {
-      position: fixed;
-      z-index: 3;
-      left: var(--gap-from-viewport-edge);
-      bottom: calc(var(--gap-from-viewport-edge) + var(--ray-label-offset));
-      display: flex;
-      flex-direction: column;
-      gap: var(--control-gap);
-    }
-
-    .ray-cycle-btn {
-      width: var(--control-size);
-      height: var(--control-size);
-      padding: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #ccc;
-      font-size: var(--control-font-size);
-      line-height: 1;
-      border: none;
-      border-radius: var(--control-radius);
-      cursor: pointer;
-      background: rgba(0, 0, 0, 0.5);
-      -webkit-backdrop-filter: blur(12px);
-      backdrop-filter: blur(12px);
-      box-shadow:
-        inset 0 0 0 1px #999,
-        0 0 0 1px #333;
-      -webkit-user-select: none;
-      user-select: none;
-      -webkit-tap-highlight-color: transparent;
-      touch-action: manipulation;
-    }
-
-    .ray-cycle-btn--next {
-      left: var(--gap-from-viewport-edge);
-    }
-
-    .ray-cycle-btn--prev {
-      left: var(--gap-from-viewport-edge);
-    }
-
-    .ray-cycle-btn:focus-visible {
-      outline: 2px solid rgba(255, 255, 255, 0.6);
-      outline-offset: 2px;
-    }
-
-    .ray-cycle-btn:disabled {
-      opacity: 0.38;
-      cursor: not-allowed;
-    }
-
     #ray-stage .ray-label {
       pointer-events: none;
       user-select: none;
@@ -170,13 +112,9 @@
     xmlns="http://www.w3.org/2000/svg"
     role="application"
     tabindex="-1"
-    aria-label="Radial rays from the top-left corner. Left and Down move forward in the cycle (including an equal-width step with no selection); Up and Right move backward."
+    aria-label="Radial rays from the top-left corner. Swipe left or tap the left third of the screen to move forward in the cycle; swipe right or tap the right third to move backward. Arrow keys: Left and Down forward; Up and Right backward."
   ></svg>
   <div id="debug-readout" aria-hidden="true"></div>
-  <div class="controls">
-    <button type="button" class="ray-cycle-btn ray-cycle-btn--prev" id="ray-btn-prev" aria-label="Previous ray">←</button>
-    <button type="button" class="ray-cycle-btn ray-cycle-btn--next" id="ray-btn-next" aria-label="Next ray">→</button>
-  </div>
 
   <script type="text/javascript">
     const CONFIG = {
@@ -201,10 +139,7 @@
       RAY_LABELS: [
         'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N',
       ],
-      /**
-       * Inset from the viewport edge along the wedge bisector (px), typically the cycle
-       * control size so labels clear the corner buttons.
-       */
+      /** Inset from the viewport edge along the wedge bisector (px). */
       RAY_LABEL_INSET_PX: 48,
       /** Label font size (px) in SVG user units. */
       RAY_LABEL_FONT_SIZE: 15,
@@ -355,8 +290,11 @@
     const main = () => {
       const svg = document.getElementById('ray-stage');
       const debugEl = document.getElementById('debug-readout');
-      const btnNext = document.getElementById('ray-btn-next');
-      const btnPrev = document.getElementById('ray-btn-prev');
+
+      const TAP_MAX_MOVE_PX = 22;
+      const SWIPE_MIN_PX = 44;
+      /** @type {{ x: number, y: number, id: number } | null} */
+      let pointerStart = null;
 
       const n = Math.max(1, Math.floor(CONFIG.RAY_COUNT));
       const peak = Math.max(0, CONFIG.ANGLE_PEAK);
@@ -562,8 +500,6 @@
           if (step === n - 1) {
             introRaf = null;
             introComplete = true;
-            btnNext.disabled = false;
-            btnPrev.disabled = false;
             snapToState(-1);
             return;
           }
@@ -633,8 +569,6 @@
       const rebuild = () => {
         cancelWidthAnimation();
         introComplete = false;
-        btnNext.disabled = true;
-        btnPrev.disabled = true;
         const w = window.innerWidth;
         const h = window.innerHeight;
         if (w < 1 || h < 1) return;
@@ -679,8 +613,6 @@
 
         if (prefersReducedMotion()) {
           introComplete = true;
-          btnNext.disabled = false;
-          btnPrev.disabled = false;
           snapToState(-1);
         } else {
           runIntro();
@@ -703,8 +635,47 @@
       };
 
       window.addEventListener('keydown', onKeydown, true);
-      btnNext.addEventListener('click', nextRay);
-      btnPrev.addEventListener('click', prevRay);
+
+      const onPointerDown = (e) => {
+        if (!introComplete) return;
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        pointerStart = { x: e.clientX, y: e.clientY, id: e.pointerId };
+        try {
+          svg.setPointerCapture(e.pointerId);
+        } catch (_) {}
+      };
+
+      const finishPointer = (e) => {
+        if (!pointerStart || e.pointerId !== pointerStart.id) return;
+        try {
+          svg.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+        const sx = pointerStart.x;
+        const sy = pointerStart.y;
+        pointerStart = null;
+        if (!introComplete) return;
+        const dx = e.clientX - sx;
+        const dy = e.clientY - sy;
+        const dist = Math.hypot(dx, dy);
+        const w = window.innerWidth;
+        if (dist < TAP_MAX_MOVE_PX) {
+          const third = w / 3;
+          if (e.clientX < third) nextRay();
+          else if (e.clientX > w - third) prevRay();
+          return;
+        }
+        if (Math.abs(dx) >= Math.abs(dy) && Math.abs(dx) >= SWIPE_MIN_PX) {
+          if (dx < 0) nextRay();
+          else prevRay();
+        }
+      };
+
+      svg.addEventListener('pointerdown', onPointerDown);
+      svg.addEventListener('pointerup', finishPointer);
+      svg.addEventListener('pointercancel', finishPointer);
+      svg.addEventListener('lostpointercapture', (e) => {
+        if (pointerStart && pointerStart.id === e.pointerId) pointerStart = null;
+      });
 
       let resizeRaf = 0;
       const onResize = () => {
