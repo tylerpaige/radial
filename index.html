@@ -150,6 +150,11 @@
       outline-offset: 2px;
     }
 
+    .ray-cycle-btn:disabled {
+      opacity: 0.38;
+      cursor: not-allowed;
+    }
+
     #ray-stage .ray-label {
       pointer-events: none;
       user-select: none;
@@ -165,7 +170,7 @@
     xmlns="http://www.w3.org/2000/svg"
     role="application"
     tabindex="-1"
-    aria-label="Radial rays from the top-left corner. Left and Down select the next ray; Up and Right select the previous ray."
+    aria-label="Radial rays from the top-left corner. Left and Down move forward in the cycle (including an equal-width step with no selection); Up and Right move backward."
   ></svg>
   <div id="debug-readout" aria-hidden="true"></div>
   <div class="controls">
@@ -225,6 +230,11 @@
         '#000000',
       ],
       SHOW_DEBUG_READOUT: false,
+      /**
+       * Intro: each ray enters in order (left edge toward top). One step finishes before
+       * the next starts; existing rays shrink equally to make room. Duration per step (ms).
+       */
+      INTRO_EACH_MS: 420,
     };
 
     const svgNS = 'http://www.w3.org/2000/svg';
@@ -298,13 +308,34 @@
       return b;
     };
 
+    /** Cumulative angles without forcing the last bound (partial fan; sum may be below halfPi). */
+    const cumulativeAnglesPartial = (widths) => {
+      const b = [0];
+      let acc = 0;
+      for (let i = 0; i < widths.length; i++) {
+        acc += Math.max(0, widths[i]);
+        b.push(acc);
+      }
+      return b;
+    };
+
     const normalizeWidths = (raw, halfPi) => {
       const safe = raw.map((x) => Math.max(1e-12, x));
       const s = safe.reduce((a, b) => a + b, 0);
       return safe.map((w) => (halfPi * w) / s);
     };
 
+    /** Equal per-ray angular widths (no selection emphasis). */
+    const equalAngularWidths = (n, halfPi) =>
+      normalizeWidths(new Array(Math.max(1, n)).fill(1), halfPi);
+
     const easeOutCubic = (t) => 1 - (1 - t) ** 3;
+
+    const clamp01 = (t) => Math.min(1, Math.max(0, t));
+
+    const prefersReducedMotion = () =>
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     /**
      * Point along wedge bisector, inset from the viewport boundary along that ray by `insetPx`.
@@ -341,7 +372,9 @@
         debugEl.style.display = 'none';
       }
 
-      let activeIndex = 0;
+      /** Logical selection: -1 = no ray emphasized (equal widths), 0…n−1 = tapered to that ray. */
+      let activeIndex = -1;
+      let introComplete = false;
       let lastW = 0;
       let lastH = 0;
       const groups = [];
@@ -350,41 +383,75 @@
       /** Last applied angular widths (rad), length n, sum π/2 — start of next animation. */
       let currentWidths = [];
       let animRaf = null;
+      let introRaf = null;
 
       const halfPi = Math.PI / 2;
 
       /** Geometric wedge index (0 = along +x … n−1 = along +y) from logical “first ray” index (0 = black / A). */
       const geoFromLogical = (logical) => n - 1 - logical;
 
-      const applyWidths = (widths) => {
+      /**
+       * @param {number[]} widths
+       * @param {{ normalize?: boolean, skipLabels?: boolean, labelOpacities?: number[] }} [opts]
+       */
+      const applyWidths = (widths, opts = {}) => {
+        const normalize = opts.normalize !== false;
+        const skipLabels = opts.skipLabels === true;
+        const labelOpacities = opts.labelOpacities;
         const w = lastW;
         const h = lastH;
         if (w < 1 || h < 1 || paths.length !== n) return;
-        const norm = normalizeWidths(widths, halfPi);
-        currentWidths = norm;
-        const bounds = cumulativeAngles(norm, halfPi);
-        for (let i = 0; i < n; i++) {
-          const pts = wedgePolygon(w, h, bounds[i], bounds[i + 1]);
-          paths[i].setAttribute('d', polygonToPath(pts));
+        const norm = normalize ? normalizeWidths(widths, halfPi) : widths.map((x) => Math.max(0, x));
+        if (normalize) {
+          currentWidths = norm;
         }
-        if (labels.length === n && rayLabels.length > 0) {
+        const bounds = normalize ? cumulativeAngles(norm, halfPi) : cumulativeAnglesPartial(norm);
+        for (let i = 0; i < n; i++) {
+          const a1 = bounds[i];
+          const a2 = bounds[i + 1];
+          if (a2 - a1 < 1e-9) {
+            paths[i].setAttribute('d', '');
+          } else {
+            const pts = wedgePolygon(w, h, a1, a2);
+            paths[i].setAttribute('d', polygonToPath(pts));
+          }
+        }
+        if (skipLabels) {
           for (let i = 0; i < n; i++) {
+            labels[i].setAttribute('display', 'none');
+          }
+        } else if (labels.length === n && rayLabels.length > 0) {
+          for (let i = 0; i < n; i++) {
+            const a1 = bounds[i];
+            const a2 = bounds[i + 1];
             const str = String(rayLabels[(n - 1 - i) % rayLabels.length]);
             const { x, y, rotationDeg } = labelPlacement(
               w,
               h,
-              bounds[i],
-              bounds[i + 1],
+              a1,
+              a2,
               labelInsetPx,
             );
             const te = labels[i];
             te.textContent = str;
-            te.removeAttribute('display');
-            te.setAttribute('x', x);
-            te.setAttribute('y', y);
-            te.setAttribute('transform', `rotate(${rotationDeg}, ${x}, ${y})`);
-            te.setAttribute('fill', labelColor);
-            te.setAttribute('font-size', labelFontSize);
+            const op =
+              labelOpacities != null && labelOpacities.length === n ? labelOpacities[i] : 1;
+            if (a2 - a1 < 1e-9 || op < 1e-4) {
+              te.setAttribute('display', 'none');
+              te.removeAttribute('opacity');
+            } else {
+              te.removeAttribute('display');
+              if (labelOpacities != null && labelOpacities.length === n && op < 1 - 1e-6) {
+                te.setAttribute('opacity', String(op));
+              } else {
+                te.removeAttribute('opacity');
+              }
+              te.setAttribute('x', x);
+              te.setAttribute('y', y);
+              te.setAttribute('transform', `rotate(${rotationDeg}, ${x}, ${y})`);
+              te.setAttribute('fill', labelColor);
+              te.setAttribute('font-size', labelFontSize);
+            }
           }
         } else if (labels.length === n) {
           for (let i = 0; i < n; i++) {
@@ -395,6 +462,13 @@
       };
 
       const reorderDom = () => {
+        if (activeIndex < 0) {
+          groups.forEach((g) => {
+            g.setAttribute('data-ray-active', 'false');
+            svg.appendChild(g);
+          });
+          return;
+        }
         const gSel = geoFromLogical(activeIndex);
         groups.forEach((g, i) => {
           g.setAttribute('data-ray-active', i === gSel ? 'true' : 'false');
@@ -405,33 +479,113 @@
 
       const updateDebug = () => {
         if (!CONFIG.SHOW_DEBUG_READOUT) return;
-        debugEl.textContent = `ray ${activeIndex + 1} / ${n}  ·  taper σ=${sigma.toFixed(2)}  peak=${peak.toFixed(2)}`;
+        if (activeIndex < 0) {
+          debugEl.textContent = `no selection (equal) · σ=${sigma.toFixed(2)}  peak=${peak.toFixed(2)}`;
+        } else {
+          debugEl.textContent = `ray ${activeIndex + 1} / ${n}  ·  taper σ=${sigma.toFixed(2)}  peak=${peak.toFixed(2)}`;
+        }
+      };
+
+      const cancelIntro = () => {
+        if (introRaf != null) {
+          cancelAnimationFrame(introRaf);
+          introRaf = null;
+        }
       };
 
       const cancelWidthAnimation = () => {
+        cancelIntro();
         if (animRaf != null) {
           cancelAnimationFrame(animRaf);
           animRaf = null;
         }
       };
 
-      /** Instant geometry (resize, first paint) — no tween. */
-      const snapToSelection = (index) => {
+      /** Instant geometry (resize, first paint) — no tween. `index` is -1 (unset) or 0…n−1. */
+      const snapToState = (index) => {
         cancelWidthAnimation();
-        activeIndex = ((index % n) + n) % n;
-        const target = angularWidths(geoFromLogical(activeIndex), n, halfPi, peak, sigma);
-        applyWidths(target);
+        activeIndex = index;
+        const target =
+          activeIndex === -1
+            ? equalAngularWidths(n, halfPi)
+            : angularWidths(geoFromLogical(activeIndex), n, halfPi, peak, sigma);
+        applyWidths(target, { normalize: true, skipLabels: false });
         reorderDom();
         updateDebug();
       };
 
-      const animateToSelection = (index) => {
-        const next = ((index % n) + n) % n;
+      const runIntro = () => {
+        if (paths.length !== n) return;
+        cancelWidthAnimation();
+        const each = Math.max(1, CONFIG.INTRO_EACH_MS);
+        activeIndex = -1;
+        reorderDom();
+        updateDebug();
+
+        /** Left edge → top: geo indices n−1, n−2, …, 0. */
+        const introGeoOrder = Array.from({ length: n }, (_, i) => n - 1 - i);
+
+        /** `visibleCount` rays present, sharing the quadrant equally; order follows introGeoOrder. */
+        const introWidthsForStep = (visibleCount) => {
+          const eff = new Array(n).fill(0);
+          if (visibleCount <= 0) return eff;
+          const w = halfPi / visibleCount;
+          for (let i = 0; i < visibleCount; i++) {
+            eff[introGeoOrder[i]] = w;
+          }
+          return eff;
+        };
+
+        let step = 0;
+        let phaseStart = performance.now();
+
+        const tick = (now) => {
+          const fromW = introWidthsForStep(step);
+          const toW = introWidthsForStep(step + 1);
+          const t = clamp01((now - phaseStart) / each);
+          const e = easeOutCubic(t);
+          const eff = fromW.map((f, i) => f + (toW[i] - f) * e);
+          const newGeo = introGeoOrder[step];
+          const labelOpacities = new Array(n);
+          for (let i = 0; i < n; i++) {
+            if (eff[i] < 1e-9) labelOpacities[i] = 0;
+            else if (i === newGeo) labelOpacities[i] = e;
+            else labelOpacities[i] = 1;
+          }
+          applyWidths(eff, { normalize: false, skipLabels: false, labelOpacities });
+
+          if (t < 1 - 1e-6) {
+            introRaf = requestAnimationFrame(tick);
+            return;
+          }
+
+          if (step === n - 1) {
+            introRaf = null;
+            introComplete = true;
+            btnNext.disabled = false;
+            btnPrev.disabled = false;
+            snapToState(-1);
+            return;
+          }
+
+          step += 1;
+          phaseStart = now;
+          introRaf = requestAnimationFrame(tick);
+        };
+
+        introRaf = requestAnimationFrame(tick);
+      };
+
+      const animateToState = (index) => {
+        if (!introComplete) return;
         if (paths.length !== n) return;
 
         cancelWidthAnimation();
-        activeIndex = next;
-        const toW = angularWidths(geoFromLogical(activeIndex), n, halfPi, peak, sigma);
+        activeIndex = index;
+        const toW =
+          activeIndex === -1
+            ? equalAngularWidths(n, halfPi)
+            : angularWidths(geoFromLogical(activeIndex), n, halfPi, peak, sigma);
         const fromW =
           currentWidths.length === n ? currentWidths.slice() : toW.slice();
         reorderDom();
@@ -460,10 +614,27 @@
         animRaf = requestAnimationFrame(tick);
       };
 
-      const nextRay = () => animateToSelection(activeIndex + 1);
-      const prevRay = () => animateToSelection(activeIndex - 1);
+      const nextRay = () => {
+        let next;
+        if (activeIndex === -1) next = 0;
+        else if (activeIndex === n - 1) next = -1;
+        else next = activeIndex + 1;
+        animateToState(next);
+      };
+
+      const prevRay = () => {
+        let next;
+        if (activeIndex === -1) next = n - 1;
+        else if (activeIndex === 0) next = -1;
+        else next = activeIndex - 1;
+        animateToState(next);
+      };
 
       const rebuild = () => {
+        cancelWidthAnimation();
+        introComplete = false;
+        btnNext.disabled = true;
+        btnPrev.disabled = true;
         const w = window.innerWidth;
         const h = window.innerHeight;
         if (w < 1 || h < 1) return;
@@ -506,7 +677,14 @@
           labels.push(textEl);
         }
 
-        snapToSelection(activeIndex);
+        if (prefersReducedMotion()) {
+          introComplete = true;
+          btnNext.disabled = false;
+          btnPrev.disabled = false;
+          snapToState(-1);
+        } else {
+          runIntro();
+        }
       };
 
       const onKeydown = (e) => {
@@ -514,6 +692,7 @@
         if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
           return;
         }
+        if (!introComplete) return;
         if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
           e.preventDefault();
           nextRay();
