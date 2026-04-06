@@ -5,6 +5,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Radial rays</title>
+  <!-- CSS reset -->
   <style>
     *,
     *::before,
@@ -54,15 +55,17 @@
       overflow-wrap: break-word;
     }
   </style>
+  <!-- Application styles -->
   <style>
-
     :root {
       --gap-from-viewport-edge: 0.5rem;
       --control-gap: 4px;
       --control-size: 48px;
       --control-radius: 9px;
       --control-font-size: 22px;
+      --ray-font-size: 15px;
     }
+
     html {
       touch-action: manipulation;
     }
@@ -74,9 +77,17 @@
       background: #1a1a1a;
     }
 
-    #ray-stage {
+    #ray-wrap {
       position: fixed;
-      inset: 0;
+      z-index: 1;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    #ray-stage {
       width: 100%;
       height: 100%;
       display: block;
@@ -101,21 +112,26 @@
       text-align: center;
     }
 
-    .controls {
-      position: fixed;
-      z-index: 3;
-      left: var(--gap-from-viewport-edge);
-      top: var(--gap-from-viewport-edge);
-      display: flex;
-      flex-direction: column;
-      gap: var(--control-gap);
+    #ray-stage .ray path {
+      cursor: pointer;
     }
 
-    .ray-cycle-btn {
+    #ray-stage .ray-label {
+      pointer-events: none;
+      user-select: none;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight: 600;
+    }
+
+    .mobile-type-btn {
+      display: none;
+      position: fixed;
+      z-index: 4;
+      left: max(var(--gap-from-viewport-edge), env(safe-area-inset-left));
+      top: max(var(--gap-from-viewport-edge), env(safe-area-inset-left));
       width: var(--control-size);
       height: var(--control-size);
       padding: 0;
-      display: flex;
       align-items: center;
       justify-content: center;
       color: #ccc;
@@ -136,40 +152,110 @@
       touch-action: manipulation;
     }
 
-    .ray-cycle-btn--next {
-      left: var(--gap-from-viewport-edge);
-    }
-
-    .ray-cycle-btn--prev {
-      left: var(--gap-from-viewport-edge);
-    }
-
-    .ray-cycle-btn:focus-visible {
+    .mobile-type-btn:focus-visible {
       outline: 2px solid rgba(255, 255, 255, 0.6);
       outline-offset: 2px;
     }
 
-    #ray-stage .ray path {
-      cursor: pointer;
+    @media (max-width: 768px) {
+      .mobile-type-btn {
+        display: flex;
+      }
+
+      body.mobile-input-active .mobile-type-btn {
+        display: none;
+      }
     }
 
-    #ray-stage .ray-label {
-      pointer-events: none;
-      user-select: none;
+    .mobile-type-panel {
+      display: none;
+      position: fixed;
+      z-index: 5;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: var(--gap-from-viewport-edge);
+      padding-bottom: max(var(--gap-from-viewport-edge), env(safe-area-inset-bottom));
+      background: rgba(26, 26, 26, 0.92);
+      -webkit-backdrop-filter: blur(16px);
+      backdrop-filter: blur(16px);
+      box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.45);
+      box-sizing: border-box;
+    }
+
+    /**
+     * While open, #ray-wrap + panel placement are driven by JS from visualViewport
+     * so the input sits below the rays without overlapping.
+     */
+    body.mobile-input-active .mobile-type-panel {
+      display: block;
+      bottom: auto;
+    }
+
+    .mobile-type-panel__input {
+      width: 100%;
+      min-height: var(--control-size);
+      padding: 10px 14px;
+      color: #f0f0f0;
+      border: none;
+      border-radius: var(--control-radius);
+      background: rgba(0, 0, 0, 0.5);
+      box-shadow:
+        inset 0 0 0 1px #999,
+        0 0 0 1px #333;
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+      touch-action: manipulation;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      font-weight: 600;
+    }
+
+    .mobile-type-panel__input:focus {
+      outline: 2px solid rgba(255, 255, 255, 0.35);
+      outline-offset: 1px;
+    }
+
+    .mobile-type-panel__input::placeholder {
+      color: rgba(255, 255, 255, 0.35);
     }
   </style>
 </head>
 
 <body>
-  <svg
-    id="ray-stage"
-    xmlns="http://www.w3.org/2000/svg"
-    role="application"
-    tabindex="0"
-    aria-label="Radial rays: type letters to add wedges. Escape clears the cursor; arrows, clicks, or typing restore it."
-  ></svg>
+  <div id="ray-wrap">
+    <svg
+      id="ray-stage"
+      xmlns="http://www.w3.org/2000/svg"
+      role="application"
+      tabindex="0"
+      aria-label="Radial rays: type letters to add wedges. Escape clears the cursor; arrows, clicks, or typing restore it."
+    ></svg>
+  </div>
+  <button
+    type="button"
+    class="mobile-type-btn mobile-type-ui"
+    id="mobile-type-btn"
+    aria-label="Open keyboard to type text"
+    aria-controls="mobile-type-panel"
+    aria-expanded="false"
+  >⌨</button>
+  <div
+    id="mobile-type-panel"
+    class="mobile-type-panel"
+    aria-hidden="true"
+  >
+    <input
+      type="text"
+      id="mobile-type-input"
+      class="mobile-type-panel__input"
+      autocomplete="off"
+      autocorrect="on"
+      autocapitalize="sentences"
+      spellcheck="false"
+      enterkeyhint="done"
+      placeholder="Type here…"
+      aria-label="Message text"
+    />
+  </div>
   <div id="debug-readout" aria-hidden="true"></div>
 
   <script type="text/javascript">
@@ -204,20 +290,9 @@
        * Pairs are chosen for readable contrast on each band.
        */
       RAY_STYLES: [
-        { background: '#e8e8e8', text: '#141414' },
-        { background: '#d4d4d4', text: '#0d0d0d' },
-        { background: '#bdbdbd', text: '#0a0a0a' },
-        { background: '#a3a3a3', text: '#080808' },
-        { background: '#8a8a8a', text: '#f5f5f5' },
-        { background: '#737373', text: '#fafafa' },
-        { background: '#5c5c5c', text: '#ffffff' },
-        { background: '#454545', text: '#ffffff' },
-        { background: '#363636', text: '#f5f5f5' },
-        { background: '#262626', text: '#f0f0f0' },
-        { background: '#1a1a1a', text: '#ececec' },
-        { background: '#121212', text: '#e8e8e8' },
-        { background: '#0a0a0a', text: '#e0e0e0' },
-        { background: '#000000', text: '#ffffff' },
+        { background: '#150000', text: '#ccc' },
+        { background: '#001500', text: '#ccc' },
+        { background: '#000015', text: '#ccc' },
       ],
       SHOW_DEBUG_READOUT: false,
     };
@@ -327,8 +402,23 @@
     /** One entry per Unicode scalar value (surrogate pairs stay one “letter”). */
     const charsFromString = (s) => Array.from(String(s ?? ''));
 
+    /**
+     * Map caret offset (0…string length) to logical ray index 0…len−1: the character
+     * immediately to the left of the caret (first/last ray when the caret is at the ends).
+     */
+    const activeIndexFromCaret = (text, caretPos) => {
+      const len = charsFromString(text).length;
+      const cp = Math.max(0, Math.min(caretPos ?? 0, len));
+      if (len === 0) return 0;
+      return Math.min(Math.max(cp - 1, 0), len - 1);
+    };
+
     const main = () => {
       const svg = document.getElementById('ray-stage');
+      const rayWrap = document.getElementById('ray-wrap');
+      const mobileTypeBtn = document.getElementById('mobile-type-btn');
+      const mobileTypePanel = document.getElementById('mobile-type-panel');
+      const mobileTypeInput = document.getElementById('mobile-type-input');
       const debugEl = document.getElementById('debug-readout');
 
       let message = String(CONFIG.INITIAL_TEXT ?? '');
@@ -359,6 +449,97 @@
       /** Last applied angular widths (rad), length n, sum π/2 — start of next animation. */
       let currentWidths = [];
       let animRaf = null;
+
+      let mobileInputOpen = false;
+
+      const clearMobilePanelLayout = () => {
+        mobileTypePanel.style.top = '';
+        mobileTypePanel.style.left = '';
+        mobileTypePanel.style.right = '';
+        mobileTypePanel.style.width = '';
+        mobileTypePanel.style.bottom = '';
+      };
+
+      const updateRayViewportSize = () => {
+        if (!mobileInputOpen) {
+          rayWrap.style.width = '';
+          rayWrap.style.height = '';
+          rayWrap.style.top = '';
+          rayWrap.style.left = '';
+          clearMobilePanelLayout();
+        } else {
+          const rect = mobileTypePanel.getBoundingClientRect();
+          const measured = Math.max(rect.height, mobileTypePanel.offsetHeight);
+          const panelH = measured > 0 ? measured : 72;
+          const vv = window.visualViewport;
+          if (vv) {
+            const availH = Math.max(1, vv.height - panelH);
+            rayWrap.style.width = `${vv.width}px`;
+            rayWrap.style.height = `${availH}px`;
+            rayWrap.style.top = `${vv.offsetTop}px`;
+            rayWrap.style.left = `${vv.offsetLeft}px`;
+            mobileTypePanel.style.left = `${vv.offsetLeft}px`;
+            mobileTypePanel.style.right = 'auto';
+            mobileTypePanel.style.width = `${vv.width}px`;
+            mobileTypePanel.style.top = `${vv.offsetTop + availH}px`;
+            mobileTypePanel.style.bottom = 'auto';
+          } else {
+            const h = Math.max(1, window.innerHeight - panelH);
+            rayWrap.style.width = '100%';
+            rayWrap.style.height = `${h}px`;
+            rayWrap.style.top = '0';
+            rayWrap.style.left = '0';
+            clearMobilePanelLayout();
+            mobileTypePanel.style.left = '0';
+            mobileTypePanel.style.right = '0';
+            mobileTypePanel.style.width = '';
+            mobileTypePanel.style.bottom = '0';
+            mobileTypePanel.style.top = 'auto';
+          }
+        }
+        rebuild();
+      };
+
+      const onVisualViewportChange = () => {
+        if (mobileInputOpen) updateRayViewportSize();
+      };
+
+      const closeMobileInput = () => {
+        if (!mobileInputOpen) return;
+        const vv = window.visualViewport;
+        if (vv) {
+          vv.removeEventListener('resize', onVisualViewportChange);
+          vv.removeEventListener('scroll', onVisualViewportChange);
+        }
+        mobileInputOpen = false;
+        document.body.classList.remove('mobile-input-active');
+        mobileTypeBtn.setAttribute('aria-expanded', 'false');
+        mobileTypePanel.setAttribute('aria-hidden', 'true');
+        mobileTypeInput.blur();
+        updateRayViewportSize();
+        svg.focus({ preventScroll: true });
+      };
+
+      const openMobileInput = () => {
+        mobileInputOpen = true;
+        document.body.classList.add('mobile-input-active');
+        mobileTypeBtn.setAttribute('aria-expanded', 'true');
+        mobileTypePanel.setAttribute('aria-hidden', 'false');
+        mobileTypeInput.value = message;
+        const vv = window.visualViewport;
+        if (vv) {
+          vv.addEventListener('resize', onVisualViewportChange);
+          vv.addEventListener('scroll', onVisualViewportChange);
+        }
+        requestAnimationFrame(() => {
+          updateRayViewportSize();
+          mobileTypeInput.focus({ preventScroll: true });
+          requestAnimationFrame(() => {
+            updateRayViewportSize();
+            applyMobileCaretToRay();
+          });
+        });
+      };
 
       const halfPi = Math.PI / 2;
 
@@ -494,8 +675,8 @@
       const prevRay = () => animateToSelection(activeIndex - 1);
 
       const rebuild = () => {
-        const w = window.innerWidth;
-        const h = window.innerHeight;
+        const w = Math.max(1, Math.floor(rayWrap.clientWidth));
+        const h = Math.max(1, Math.floor(rayWrap.clientHeight));
         if (w < 1 || h < 1) return;
 
         lastW = w;
@@ -553,11 +734,33 @@
             const geo = Number(path.getAttribute('data-geo-ray-index'));
             if (Number.isNaN(geo)) return;
             const logical = n - 1 - geo;
+            if (mobileInputOpen) {
+              closeMobileInput();
+              return;
+            }
             animateToSelection(logical);
           });
         }
 
         snapVisualState();
+      };
+
+      /** Sync `activeIndex` / fan highlight from the mobile text field caret. */
+      const applyMobileCaretToRay = () => {
+        if (!mobileInputOpen) return;
+        message = mobileTypeInput.value;
+        const newN = charsFromString(message).length;
+        const nextIdx = activeIndexFromCaret(message, mobileTypeInput.selectionStart);
+        const prevIdx = activeIndex;
+        activeIndex = nextIdx;
+        cursorVisible = true;
+        if (newN !== n || paths.length !== newN) {
+          rebuild();
+          return;
+        }
+        if (n < 1 || paths.length !== n) return;
+        if (nextIdx === prevIdx) return;
+        animateToSelection(activeIndex);
       };
 
       const insertChar = (ch) => {
@@ -582,6 +785,10 @@
         }
         if (e.key === 'Escape') {
           e.preventDefault();
+          if (mobileInputOpen) {
+            closeMobileInput();
+            return;
+          }
           clearCursor();
           return;
         }
@@ -646,14 +853,82 @@
       window.addEventListener('keydown', onKeydown, true);
       window.addEventListener('keypress', onKeypress, true);
 
+      mobileTypeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openMobileInput();
+      });
+
+      mobileTypeInput.addEventListener('input', () => {
+        message = mobileTypeInput.value;
+        cursorVisible = true;
+        requestAnimationFrame(() => {
+          activeIndex = activeIndexFromCaret(message, mobileTypeInput.selectionStart);
+          rebuild();
+        });
+      });
+
+      mobileTypeInput.addEventListener('keyup', (e) => {
+        if (!mobileInputOpen || e.isComposing) return;
+        applyMobileCaretToRay();
+      });
+
+      mobileTypeInput.addEventListener('click', () => {
+        if (!mobileInputOpen) return;
+        requestAnimationFrame(() => applyMobileCaretToRay());
+      });
+
+      mobileTypeInput.addEventListener('select', () => {
+        if (!mobileInputOpen) return;
+        requestAnimationFrame(() => applyMobileCaretToRay());
+      });
+
+      mobileTypeInput.addEventListener('compositionend', () => {
+        if (!mobileInputOpen) return;
+        requestAnimationFrame(() => applyMobileCaretToRay());
+      });
+
+      let caretSyncRaf = null;
+      document.addEventListener('selectionchange', () => {
+        if (!mobileInputOpen || document.activeElement !== mobileTypeInput) return;
+        if (caretSyncRaf != null) cancelAnimationFrame(caretSyncRaf);
+        caretSyncRaf = requestAnimationFrame(() => {
+          caretSyncRaf = null;
+          applyMobileCaretToRay();
+        });
+      });
+
+      mobileTypeInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' || e.key === 'Enter') {
+          e.preventDefault();
+          closeMobileInput();
+        }
+      });
+
       let resizeRaf = 0;
       const onResize = () => {
         cancelAnimationFrame(resizeRaf);
-        resizeRaf = requestAnimationFrame(rebuild);
+        resizeRaf = requestAnimationFrame(() => {
+          if (mobileInputOpen) updateRayViewportSize();
+          else rebuild();
+        });
       };
 
       window.addEventListener('resize', onResize);
-      svg.addEventListener('pointerdown', () => {
+
+      if (window.ResizeObserver) {
+        const panelLayoutObserver = new ResizeObserver(() => {
+          if (mobileInputOpen) updateRayViewportSize();
+        });
+        panelLayoutObserver.observe(mobileTypePanel);
+      }
+
+      svg.addEventListener('pointerdown', (e) => {
+        if (e.target === svg && mobileInputOpen) {
+          e.preventDefault();
+          closeMobileInput();
+          return;
+        }
         svg.focus({ preventScroll: true });
       });
       rebuild();
