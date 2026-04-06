@@ -123,6 +123,31 @@
       font-weight: 600;
     }
 
+    #ray-focus-image-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .ray-focus-image-anchor {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      max-width: min(42vw, 300px);
+      max-height: min(34vh, 240px);
+    }
+
+    #ray-focus-image {
+      display: block;
+      width: 100%;
+      height: auto;
+      max-height: min(34vh, 240px);
+      object-fit: contain;
+      opacity: 0;
+      border-radius: 10px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    }
+
     .mobile-type-btn {
       display: none;
       position: fixed;
@@ -229,6 +254,11 @@
       tabindex="0"
       aria-label="Radial rays: type letters to add wedges. Escape clears the cursor; arrows, clicks, or typing restore it."
     ></svg>
+    <div id="ray-focus-image-layer" aria-hidden="true">
+      <div id="ray-focus-image-anchor" class="ray-focus-image-anchor">
+        <img id="ray-focus-image" alt="" decoding="async" />
+      </div>
+    </div>
   </div>
   <button
     type="button"
@@ -278,6 +308,21 @@
       ANGLE_SIGMA: 0.5,
       /** Duration (ms) for animated transitions between selection states. */
       TRANSITION_MS: 420,
+      /** Duration (ms) for opacity fade-in of the focused-ray image (after expansion finishes). */
+      IMAGE_FADE_MS: 450,
+      /**
+       * Map ray character → image URL when that ray is focused (cursor visible).
+       * Characters not listed do not show an image.
+       */
+      RAY_IMAGE_MAP: {
+        S: 'https://picsum.photos/seed/radial-S/320/240',
+        a: 'https://picsum.photos/seed/radial-a/320/240',
+        y: 'https://picsum.photos/seed/radial-y/320/240',
+        H: 'https://picsum.photos/seed/radial-H/320/240',
+        e: 'https://picsum.photos/seed/radial-e/320/240',
+        l: 'https://picsum.photos/seed/radial-l/320/240',
+        o: 'https://picsum.photos/seed/radial-o/320/240',
+      },
       /**
        * Inset from the viewport edge along the wedge bisector (px), typically the cycle
        * control size so labels clear the corner buttons.
@@ -430,9 +475,16 @@
       const peak = Math.max(0, CONFIG.ANGLE_PEAK);
       const sigma = Math.max(0.35, CONFIG.ANGLE_SIGMA);
       const transitionMs = Math.max(0, CONFIG.TRANSITION_MS);
+      const imageFadeMs = Math.max(0, CONFIG.IMAGE_FADE_MS ?? 450);
       const rayStyles = Array.isArray(CONFIG.RAY_STYLES) ? CONFIG.RAY_STYLES : [];
       const labelInsetPx = Math.max(0, CONFIG.RAY_LABEL_INSET_PX);
       const labelFontSize = Math.max(6, CONFIG.RAY_LABEL_FONT_SIZE);
+      const rayImageMap =
+        CONFIG.RAY_IMAGE_MAP && typeof CONFIG.RAY_IMAGE_MAP === 'object' ? CONFIG.RAY_IMAGE_MAP : {};
+      /** Inset along bisector for the focus image anchor (px), beyond the viewport edge. */
+      const imageAnchorInsetPx = labelInsetPx + 80;
+      const focusAnchor = document.getElementById('ray-focus-image-anchor');
+      const focusImg = document.getElementById('ray-focus-image');
 
       if (!CONFIG.SHOW_DEBUG_READOUT) {
         debugEl.style.display = 'none';
@@ -449,6 +501,7 @@
       /** Last applied angular widths (rad), length n, sum π/2 — start of next animation. */
       let currentWidths = [];
       let animRaf = null;
+      let imageFadeRaf = null;
 
       let mobileInputOpen = false;
 
@@ -546,6 +599,105 @@
       /** Geometric wedge index (0 = along +x … n−1 = along +y) from logical “first ray” index (0 = black / A). */
       const geoFromLogical = (logical) => n - 1 - logical;
 
+      const cancelImageFade = () => {
+        if (imageFadeRaf != null) {
+          cancelAnimationFrame(imageFadeRaf);
+          imageFadeRaf = null;
+        }
+      };
+
+      const hideFocusImage = () => {
+        cancelImageFade();
+        if (!focusImg) return;
+        focusImg.style.opacity = '0';
+        focusImg.removeAttribute('src');
+        focusImg.onload = null;
+        focusImg.onerror = null;
+      };
+
+      const updateFocusImageAnchorPosition = () => {
+        if (!focusAnchor || n < 1 || lastW < 1 || lastH < 1) return;
+        if (!cursorVisible || currentWidths.length !== n) return;
+        const geo = geoFromLogical(activeIndex);
+        const bounds = cumulativeAngles(currentWidths, halfPi);
+        const { x, y } = labelPlacement(
+          lastW,
+          lastH,
+          bounds[geo],
+          bounds[geo + 1],
+          imageAnchorInsetPx,
+        );
+        focusAnchor.style.left = `${x}px`;
+        focusAnchor.style.top = `${y}px`;
+      };
+
+      /**
+       * Fade in the image for the active ray (ease-out cubic, IMAGE_FADE_MS).
+       * Call only when the wedge geometry already matches the focused selection.
+       */
+      const beginFocusImageFade = () => {
+        cancelImageFade();
+        if (!focusImg || n < 1 || !cursorVisible) {
+          hideFocusImage();
+          return;
+        }
+        const ch = String(rayChars[activeIndex] ?? '');
+        const url = rayImageMap[ch];
+        if (!url) {
+          focusImg.removeAttribute('src');
+          focusImg.style.opacity = '0';
+          return;
+        }
+
+        focusImg.style.opacity = '0';
+
+        const runFade = () => {
+          focusImg.style.opacity = '0';
+          const start = performance.now();
+          const tick = (now) => {
+            const t = Math.min(1, (now - start) / imageFadeMs);
+            const e = easeOutCubic(t);
+            focusImg.style.opacity = String(e);
+            if (t < 1) {
+              imageFadeRaf = requestAnimationFrame(tick);
+            } else {
+              imageFadeRaf = null;
+              focusImg.style.opacity = '1';
+            }
+          };
+          imageFadeRaf = requestAnimationFrame(tick);
+        };
+
+        const startAfterDecode = () => {
+          updateFocusImageAnchorPosition();
+          requestAnimationFrame(() => {
+            requestAnimationFrame(runFade);
+          });
+        };
+
+        focusImg.onload = null;
+        focusImg.onerror = () => {
+          focusImg.onerror = null;
+          focusImg.style.opacity = '0';
+        };
+        focusImg.src = url;
+        if (focusImg.decode) {
+          focusImg
+            .decode()
+            .then(startAfterDecode)
+            .catch(() => {
+              if (focusImg.complete && focusImg.naturalWidth > 0) startAfterDecode();
+            });
+        } else if (focusImg.complete && focusImg.naturalWidth > 0) {
+          startAfterDecode();
+        } else {
+          focusImg.onload = () => {
+            focusImg.onload = null;
+            startAfterDecode();
+          };
+        }
+      };
+
       const applyWidths = (widths) => {
         const w = lastW;
         const h = lastH;
@@ -609,10 +761,12 @@
       const snapVisualState = () => {
         cancelWidthAnimation();
         if (n < 1) {
+          hideFocusImage();
           updateDebug();
           return;
         }
         if (!cursorVisible) {
+          hideFocusImage();
           applyWidths(equalRayWidths());
           updateDebug();
           return;
@@ -621,11 +775,13 @@
         applyWidths(target);
         reorderDom();
         updateDebug();
+        beginFocusImageFade();
       };
 
       const clearCursor = () => {
         cursorVisible = false;
         cancelWidthAnimation();
+        hideFocusImage();
         if (n < 1) {
           updateDebug();
           return;
@@ -640,6 +796,7 @@
         if (paths.length !== n) return;
 
         cancelWidthAnimation();
+        hideFocusImage();
         cursorVisible = true;
         activeIndex = next;
         const toW = angularWidths(geoFromLogical(activeIndex), n, halfPi, peak, sigma);
@@ -650,6 +807,7 @@
 
         if (transitionMs <= 0) {
           applyWidths(toW);
+          beginFocusImageFade();
           return;
         }
 
@@ -665,6 +823,7 @@
           } else {
             animRaf = null;
             applyWidths(toW);
+            beginFocusImageFade();
           }
         };
 
@@ -696,6 +855,7 @@
 
         if (n < 1) {
           currentWidths = [];
+          hideFocusImage();
           updateDebug();
           return;
         }
@@ -911,6 +1071,9 @@
         resizeRaf = requestAnimationFrame(() => {
           if (mobileInputOpen) updateRayViewportSize();
           else rebuild();
+          if (focusImg && focusImg.getAttribute('src') && cursorVisible) {
+            updateFocusImageAnchorPosition();
+          }
         });
       };
 
