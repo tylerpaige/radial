@@ -931,6 +931,50 @@
         }
         svg.focus({ preventScroll: true });
       });
+
+      const SWIPE_MIN_PX = 48;
+      let swipeActive = null;
+
+      const onSwipePointerDown = (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        if (mobileTypePanel.contains(e.target)) return;
+        swipeActive = { x: e.clientX, y: e.clientY, id: e.pointerId };
+        try {
+          rayWrap.setPointerCapture(e.pointerId);
+        } catch (_) {
+          /* ignore */
+        }
+      };
+
+      const onSwipePointerUp = (e) => {
+        if (!swipeActive || swipeActive.id !== e.pointerId) return;
+        const start = swipeActive;
+        swipeActive = null;
+        try {
+          rayWrap.releasePointerCapture(e.pointerId);
+        } catch (_) {
+          /* ignore */
+        }
+        const dx = e.clientX - start.x;
+        const dy = e.clientY - start.y;
+        if (Math.abs(dx) < SWIPE_MIN_PX) return;
+        if (Math.abs(dx) <= Math.abs(dy)) return;
+        if (n < 1) return;
+        cursorVisible = true;
+        if (dx > 0) prevRay();
+        else nextRay();
+      };
+
+      const onSwipePointerCancel = (e) => {
+        if (swipeActive && swipeActive.id === e.pointerId) {
+          swipeActive = null;
+        }
+      };
+
+      rayWrap.addEventListener('pointerdown', onSwipePointerDown);
+      rayWrap.addEventListener('pointerup', onSwipePointerUp);
+      rayWrap.addEventListener('pointercancel', onSwipePointerCancel);
+
       rebuild();
       svg.focus({ preventScroll: true });
     };
