@@ -250,6 +250,10 @@ export class RadialRayStage {
       cancelAnimationFrame(this._resizeRaf);
       this._resizeRaf = requestAnimationFrame(() => this.resizeContainer());
     };
+    /** @type {Map<number, number>} logicalIndex → raf id for label fade-in */
+    this._labelFadeRafByLogical = new Map();
+    /** @type {Map<number, number>} logicalIndex → 0…1 opacity while a blur label fade-in is active (merged in {@link _applyWidths}). */
+    this._labelFadeOpacityByLogical = new Map();
   }
 
   _emit(name, detail) {
@@ -469,13 +473,24 @@ export class RadialRayStage {
     return this;
   }
 
+  _cancelLabelFade(logicalIndex) {
+    const raf = this._labelFadeRafByLogical.get(logicalIndex);
+    if (raf != null) {
+      cancelAnimationFrame(raf);
+      this._labelFadeRafByLogical.delete(logicalIndex);
+    }
+    this._labelFadeOpacityByLogical.delete(logicalIndex);
+  }
+
   /**
    * Update a ray’s label text and redraw (no geometry animation).
    * @param {number} logicalIndex
    * @param {string|null|undefined} label
+   * @param {{ fadeInMs?: number }} [opts] - Fade opacity in using `style.opacity` (attribute opacity is used elsewhere; fade skips if reduced motion).
    */
-  setRayLabel(logicalIndex, label) {
+  setRayLabel(logicalIndex, label, opts = {}) {
     if (logicalIndex < 0 || logicalIndex >= this.count) return this;
+    this._cancelLabelFade(logicalIndex);
     this._rays[logicalIndex].label = label == null ? '' : String(label);
     /** Prefer live `_currentWidths` during width tweens so we do not snap geometry. */
     const w =
@@ -483,6 +498,43 @@ export class RadialRayStage {
         ? this._currentWidths
         : this._widthsForState(this._activeIndex);
     this._applyWidths(w, { normalize: true });
+
+    const fadeMs = opts.fadeInMs;
+    const geo = this.geoFromLogical(logicalIndex);
+    const te = this._labels[geo];
+    if (fadeMs == null || fadeMs <= 0 || prefersReducedMotion() || !te) {
+      return this;
+    }
+
+    /** `_applyWidths` clears `opacity` every frame; we re-apply via {@link _labelFadeOpacityByLogical}. */
+    const reapplyWidthsForFade = () => {
+      const w2 =
+        this._currentWidths.length === this.count
+          ? this._currentWidths
+          : this._widthsForState(this._activeIndex);
+      this._applyWidths(w2, { normalize: true });
+    };
+
+    this._labelFadeOpacityByLogical.set(logicalIndex, 0);
+    reapplyWidthsForFade();
+
+    const start = performance.now();
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / fadeMs);
+      const e = easeOutCubic(t);
+      this._labelFadeOpacityByLogical.set(logicalIndex, e);
+      reapplyWidthsForFade();
+      if (t < 1 - 1e-6) {
+        const id = requestAnimationFrame(tick);
+        this._labelFadeRafByLogical.set(logicalIndex, id);
+      } else {
+        this._labelFadeOpacityByLogical.delete(logicalIndex);
+        this._labelFadeRafByLogical.delete(logicalIndex);
+        reapplyWidthsForFade();
+      }
+    };
+    const id = requestAnimationFrame(tick);
+    this._labelFadeRafByLogical.set(logicalIndex, id);
     return this;
   }
 
@@ -722,10 +774,18 @@ export class RadialRayStage {
     const labelFontSize = Math.max(6, this._config.labelFontSize);
     const labelColor = this._config.labelColor || '#ffffff';
     const globalOrient = this._config.textOrientation || TEXT_ORIENTATION.RADIAL;
+    /** When a wedge collapses during focus transitions, label fade-in still needs a non-empty clip. */
+    const minRadForFadeLabel = 2e-4;
 
     for (let i = 0; i < n; i++) {
-      const a1 = bounds[i];
-      const a2 = bounds[i + 1];
+      const logical = this.logicalFromGeo(i);
+      let a1 = bounds[i];
+      let a2 = bounds[i + 1];
+      if (a2 - a1 < 1e-9 && this._labelFadeOpacityByLogical.has(logical)) {
+        const mid = (a1 + a2) / 2;
+        a1 = mid - minRadForFadeLabel / 2;
+        a2 = mid + minRadForFadeLabel / 2;
+      }
       if (a2 - a1 < 1e-9) {
         this._paths[i].setAttribute('d', '');
         this._clipPathPaths[i].setAttribute('d', '');
@@ -742,14 +802,23 @@ export class RadialRayStage {
       for (let i = 0; i < n; i++) {
         const logical = this.logicalFromGeo(i);
         const str = this._rays[logical].label != null ? String(this._rays[logical].label) : '';
-        const a1 = bounds[i];
-        const a2 = bounds[i + 1];
+        const originalNarrow = bounds[i + 1] - bounds[i] < 1e-9;
+        const fadingLabel = str !== '' && this._labelFadeOpacityByLogical.has(logical);
+
+        let a1 = bounds[i];
+        let a2 = bounds[i + 1];
+        if (originalNarrow && fadingLabel) {
+          const mid = (a1 + a2) / 2;
+          a1 = mid - minRadForFadeLabel / 2;
+          a2 = mid + minRadForFadeLabel / 2;
+        }
+
         const { x, y, rotationDeg } = labelPlacement(w, h, a1, a2, labelInsetPx);
         const te = this._labels[i];
         te.textContent = str;
         const op =
           labelOpacities != null && labelOpacities.length === n ? labelOpacities[i] : 1;
-        if (bounds[i + 1] - bounds[i] < 1e-9 || op < 1e-4 || str === '') {
+        if ((originalNarrow && !fadingLabel) || op < 1e-4 || str === '') {
           te.setAttribute('display', 'none');
           te.removeAttribute('opacity');
         } else {
@@ -758,6 +827,14 @@ export class RadialRayStage {
             te.setAttribute('opacity', String(op));
           } else {
             te.removeAttribute('opacity');
+          }
+          const fadeOp = this._labelFadeOpacityByLogical.get(logical);
+          if (fadeOp != null) {
+            if (labelOpacities != null && labelOpacities.length === n) {
+              te.setAttribute('opacity', String(op * fadeOp));
+            } else {
+              te.setAttribute('opacity', String(fadeOp));
+            }
           }
           te.setAttribute('x', x);
           te.setAttribute('y', y);

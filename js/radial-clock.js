@@ -53,6 +53,8 @@ const defaultClockConfig = () => ({
     '#000000',
   ],
   showDebugReadout: false,
+  /** Opacity fade (ms) when swapping to the short “blurred” label; 0 to disable. */
+  blurLabelFadeMs: 1000,
 });
 
 /**
@@ -111,7 +113,7 @@ export function hour12FromLogicalIndex(logicalIndex) {
  * Keys are 1–12 (twelve-hour clock).
  */
 export const RAY_FOCUS_MESSAGES_BY_HOUR_12 = {
-  12: 'Fitting the day begins with a number out of sequence. 12:00',
+  12: 'Fitting that the day begins with a number out of sequence. 12:00',
   1: 'A good time to focus on your #1 priority. 1:00',
   2: 'A bad time to consider if you\'re double booked. 2:00',
   3: 'About now you should be clocking in to work. 3:00',
@@ -203,7 +205,7 @@ export function createRadialClock(svg, options = {}) {
   const focusedLabelForLogicalIndex = (logicalIndex, now = new Date()) => {
     const n = stage.count;
     if (isLogicalIndexCurrentHour(n, clockCfg.rayLabels, logicalIndex)) {
-      return `Now, of course: ${formatTimeToMinute(now)}`;
+      return `Presenting: ${formatTimeToMinute(now)}`;
     }
     const h12 = hour12FromLogicalIndex(logicalIndex);
     return RAY_FOCUS_MESSAGES_BY_HOUR_12[h12] ?? templateLabelForLogicalIndex(logicalIndex);
@@ -224,7 +226,10 @@ export function createRadialClock(svg, options = {}) {
 
   const applyBlurredLabel = (logicalIndex, now = new Date()) => {
     if (logicalIndex < 0 || logicalIndex >= stage.count) return;
-    stage.setRayLabel(logicalIndex, blurredLabelForLogicalIndex(logicalIndex, now));
+    const fadeMs = clockCfg.blurLabelFadeMs;
+    const fadeOpts =
+      typeof fadeMs === 'number' && fadeMs > 0 ? { fadeInMs: fadeMs } : {};
+    stage.setRayLabel(logicalIndex, blurredLabelForLogicalIndex(logicalIndex, now), fadeOpts);
   };
 
   /**
