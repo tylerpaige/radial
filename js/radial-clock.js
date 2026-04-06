@@ -98,6 +98,33 @@ export function isLogicalIndexCurrentHour(n, rayLabels, logicalIndex) {
   return logicalIndex === logicalIndexForCurrentHour(n, rayLabels);
 }
 
+/**
+ * Maps a ray’s logical index (0 = 12:00, 1 = 1:00, …) to clock hour 1–12.
+ */
+export function hour12FromLogicalIndex(logicalIndex) {
+  const m = logicalIndex % 12;
+  return m === 0 ? 12 : m;
+}
+
+/**
+ * Full label shown while a ray is focused (not the “current hour” ray; that uses `Now, of course: …`).
+ * Keys are 1–12 (twelve-hour clock).
+ */
+export const RAY_FOCUS_MESSAGES_BY_HOUR_12 = {
+  12: 'Fitting the day begins with a number out of sequence. 12:00',
+  1: 'A good time to focus on your #1 priority. 1:00',
+  2: 'A bad time to consider if you\'re double booked. 2:00',
+  3: 'About now you should be clocking in to work. 3:00',
+  4: 'A time to be even-tempered. 4:00',
+  5: 'The first non-factor of twelve. 5:00',
+  6: 'In some legacy systems, halfway through the day. 6:00',
+  7: 'By cruel misfortune, it will never be 7:77. 7:00',
+  8: 'About now you should be clocking in to work. 8:00',
+  9: 'In some upside down systems, halfway through the day. 9:00',
+  10: 'Toes down on the ground: 10:00',
+  11: 'In heaven, the angels are on their first smoke break. 11:00',
+};
+
 /** 12-hour time with minutes, e.g. `12:05`, `3:42`. */
 export function formatTimeToMinute(d = new Date()) {
   let h = d.getHours() % 12;
@@ -173,18 +200,41 @@ export function createRadialClock(svg, options = {}) {
     }
   };
 
+  const focusedLabelForLogicalIndex = (logicalIndex, now = new Date()) => {
+    const n = stage.count;
+    if (isLogicalIndexCurrentHour(n, clockCfg.rayLabels, logicalIndex)) {
+      return `Now, of course: ${formatTimeToMinute(now)}`;
+    }
+    const h12 = hour12FromLogicalIndex(logicalIndex);
+    return RAY_FOCUS_MESSAGES_BY_HOUR_12[h12] ?? templateLabelForLogicalIndex(logicalIndex);
+  };
+
+  const blurredLabelForLogicalIndex = (logicalIndex, now = new Date()) => {
+    const n = stage.count;
+    if (isLogicalIndexCurrentHour(n, clockCfg.rayLabels, logicalIndex)) {
+      return formatTimeToMinute(now);
+    }
+    return templateLabelForLogicalIndex(logicalIndex);
+  };
+
+  const applyFocusedLabel = (logicalIndex, now = new Date()) => {
+    if (logicalIndex < 0 || logicalIndex >= stage.count) return;
+    stage.setRayLabel(logicalIndex, focusedLabelForLogicalIndex(logicalIndex, now));
+  };
+
+  const applyBlurredLabel = (logicalIndex, now = new Date()) => {
+    if (logicalIndex < 0 || logicalIndex >= stage.count) return;
+    stage.setRayLabel(logicalIndex, blurredLabelForLogicalIndex(logicalIndex, now));
+  };
+
   /**
-   * Live time only on the ray for the current hour; other rays use the static template label.
+   * While a ray is focused: refresh its “focused” copy (live time for current-hour ray).
    */
-  const syncActiveRayLabel = (now = new Date()) => {
+  const refreshActiveRayFocusedLabel = (now = new Date()) => {
     const idx = stage.activeIndex;
     const n = stage.count;
     if (idx < 0 || n < 1) return;
-    if (isLogicalIndexCurrentHour(n, clockCfg.rayLabels, idx)) {
-      stage.setRayLabel(idx, formatTimeToMinute(now));
-    } else {
-      stage.setRayLabel(idx, templateLabelForLogicalIndex(idx));
-    }
+    applyFocusedLabel(idx, now);
   };
 
   const onMinuteTick = () => {
@@ -194,10 +244,6 @@ export function createRadialClock(svg, options = {}) {
 
     if (h24 !== lastTrackedHour) {
       lastTrackedHour = h24;
-      const oldIdx = stage.activeIndex;
-      if (oldIdx >= 0) {
-        stage.setRayLabel(oldIdx, templateLabelForLogicalIndex(oldIdx));
-      }
       const newIdx = logicalIndexForCurrentHour(stage.count, clockCfg.rayLabels);
       const navOpts = { animate: !prefersReducedMotion() };
       stage.setActiveRay(newIdx, navOpts);
@@ -205,13 +251,13 @@ export function createRadialClock(svg, options = {}) {
       return;
     }
 
-    syncActiveRayLabel(now);
+    refreshActiveRayFocusedLabel(now);
   };
 
   const startMinuteSchedule = () => {
     clearMinuteSchedule();
     lastTrackedHour = new Date().getHours();
-    syncActiveRayLabel();
+    refreshActiveRayFocusedLabel();
     minuteTimeoutId = setTimeout(() => {
       minuteTimeoutId = null;
       onMinuteTick();
@@ -226,7 +272,7 @@ export function createRadialClock(svg, options = {}) {
     const n = stage.count;
     const idx = logicalIndexForCurrentHour(n, clockCfg.rayLabels);
     stage.setActiveRay(idx, navOpts);
-    stage.setRayLabel(idx, formatTimeToMinute());
+    applyFocusedLabel(idx);
   };
 
   stage.setHooks({
@@ -235,13 +281,21 @@ export function createRadialClock(svg, options = {}) {
       stageHooks.afterInitialize?.(...args);
       updateDebug();
     },
-    afterRayFocus: (...args) => {
-      stageHooks.afterRayFocus?.(...args);
-      syncActiveRayLabel();
+    beforeRayBlur: (detail) => {
+      stageHooks.beforeRayBlur?.(detail);
+      if (detail && typeof detail.logicalIndex === 'number') {
+        applyBlurredLabel(detail.logicalIndex);
+      }
+    },
+    afterRayFocus: (detail) => {
+      stageHooks.afterRayFocus?.(detail);
+      if (detail && typeof detail.logicalIndex === 'number') {
+        applyFocusedLabel(detail.logicalIndex);
+      }
       updateDebug();
     },
-    afterRayBlur: (...args) => {
-      stageHooks.afterRayBlur?.(...args);
+    afterRayBlur: (detail) => {
+      stageHooks.afterRayBlur?.(detail);
       updateDebug();
     },
     afterBlurAll: (...args) => {

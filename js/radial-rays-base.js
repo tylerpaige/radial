@@ -202,6 +202,12 @@ function rotationForOrientation(orientation, bisectorDeg, globalDefault) {
   return bisectorDeg;
 }
 
+/** Radial labels use `end` so the trailing edge sits at the bisector anchor (toward the ray terminal). */
+function textAnchorForOrientation(orientation, globalDefault) {
+  const o = orientation ?? globalDefault;
+  return o === TEXT_ORIENTATION.RADIAL ? 'end' : 'middle';
+}
+
 export class RadialRayStage {
   /**
    * @param {SVGElement|string} container
@@ -757,6 +763,7 @@ export class RadialRayStage {
           te.setAttribute('y', y);
           const orient = this._rays[logical].textOrientation;
           const rot = rotationForOrientation(orient, rotationDeg, globalOrient);
+          te.setAttribute('text-anchor', textAnchorForOrientation(orient, globalOrient));
           te.setAttribute('transform', `rotate(${rot}, ${x}, ${y})`);
           te.setAttribute('fill', labelColor);
           te.setAttribute('font-size', labelFontSize);
